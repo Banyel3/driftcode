@@ -20,10 +20,3 @@ export const SECURE_STORE_KEYS = {
   CLONE_DIRECTORY: 'driftcode_clone_directory',
   REMEMBER_CREDENTIALS: 'driftcode_remember_credentials',
 } as const;
-
-// GitHub OAuth — CLIENT_ID comes from .env.local (never committed).
-// Device Flow only needs CLIENT_ID — no client secret required.
-export const GITHUB_OAUTH = {
-  CLIENT_ID: process.env['EXPO_PUBLIC_GITHUB_CLIENT_ID'] ?? '',
-  SCOPES: ['repo', 'read:user'],
-} as const;

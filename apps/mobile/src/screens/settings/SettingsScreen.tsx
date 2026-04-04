@@ -3,12 +3,12 @@
  *
  * Sections:
  *  SERVER      — URL (read-only), username, live connection dot, "Change Server"
- *  GITHUB      — OAuth connect/disconnect, shows avatar login when connected
+ *  GITHUB      — PAT connect/disconnect, shows avatar login when connected
  *  PREFERENCES — AI Model picker (modal), Clone Directory text input
  *  ABOUT       — App version, server version (from GET /global/health)
  *  ACCOUNT     — "Disconnect Server" danger action
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -23,12 +23,10 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
-  Clipboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
-import * as WebBrowser from 'expo-web-browser';
 import { useQuery } from '@tanstack/react-query';
 import { getHealth, createOpenCodeClient } from '@driftcode/opencode-client';
 import type { ProviderModelOption } from '../../hooks/useProviders';
@@ -129,94 +127,126 @@ function Divider() {
 }
 
 // ---------------------------------------------------------------------------
-// Device Flow modal — shown while waiting for GitHub Device Flow authorization
+// PAT modal — user pastes a GitHub Personal Access Token
 // ---------------------------------------------------------------------------
 
-interface DeviceFlowModalProps {
-  userCode: string;
-  verificationUri: string;
-  onCancel: () => void;
+interface PATModalProps {
+  visible: boolean;
+  onConnect: (token: string) => Promise<void>;
+  onClose: () => void;
+  isLoading: boolean;
+  error: string | null;
 }
 
-function DeviceFlowModal({ userCode, verificationUri, onCancel }: DeviceFlowModalProps) {
-  const handleCopyCode = useCallback(() => {
-    Clipboard.setString(userCode);
-  }, [userCode]);
+function PATModal({ visible, onConnect, onClose, isLoading, error }: PATModalProps) {
+  const [token, setToken] = useState('');
 
-  const handleOpenBrowser = useCallback(() => {
-    void WebBrowser.openBrowserAsync(verificationUri);
-  }, [verificationUri]);
+  const handleConnect = useCallback(async () => {
+    await onConnect(token);
+  }, [token, onConnect]);
+
+  const handleClose = useCallback(() => {
+    setToken('');
+    onClose();
+  }, [onClose]);
 
   return (
     <Modal
-      visible
+      visible={visible}
       animationType="slide"
       presentationStyle="formSheet"
-      onRequestClose={onCancel}
+      onRequestClose={handleClose}
     >
       <SafeAreaView style={styles.modalContainer} edges={['top', 'bottom']}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Authorize on GitHub</Text>
-          <TouchableOpacity
-            onPress={onCancel}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons name="close" size={24} color={COLORS.text} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.deviceFlowBody}>
-          {/* Instruction */}
-          <Text style={styles.deviceFlowStep}>
-            1. Open the link below in your browser (it may have opened automatically)
-          </Text>
-          <TouchableOpacity
-            style={styles.deviceFlowUrlButton}
-            onPress={handleOpenBrowser}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="open-outline" size={16} color={COLORS.primary} />
-            <Text style={styles.deviceFlowUrl}>{verificationUri}</Text>
-          </TouchableOpacity>
-
-          <Text style={styles.deviceFlowStep}>
-            2. Enter this code on the GitHub page:
-          </Text>
-
-          {/* Big code display */}
-          <TouchableOpacity
-            style={styles.deviceFlowCodeCard}
-            onPress={handleCopyCode}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.deviceFlowCode}>{userCode}</Text>
-            <View style={styles.deviceFlowCopyHint}>
-              <Ionicons name="copy-outline" size={14} color={COLORS.textMuted} />
-              <Text style={styles.deviceFlowCopyText}>Tap to copy</Text>
-            </View>
-          </TouchableOpacity>
-
-          <Text style={styles.deviceFlowStep}>3. Click Authorize on the GitHub page</Text>
-
-          {/* Polling indicator */}
-          <View style={styles.deviceFlowWaiting}>
-            <ActivityIndicator size="small" color={COLORS.primary} />
-            <Text style={styles.deviceFlowWaitingText}>
-              Waiting for authorization…
-            </Text>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Connect GitHub</Text>
+            <TouchableOpacity
+              onPress={handleClose}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="close" size={24} color={COLORS.text} />
+            </TouchableOpacity>
           </View>
-        </View>
 
-        {/* Cancel */}
-        <View style={styles.deviceFlowFooter}>
-          <TouchableOpacity
-            style={styles.deviceFlowCancelButton}
-            onPress={onCancel}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.deviceFlowCancelText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
+          <View style={styles.patBody}>
+            <Text style={styles.patInstruction}>
+              Create a classic Personal Access Token on GitHub and paste it below.
+            </Text>
+
+            {/* Scopes */}
+            <View style={styles.patScopesCard}>
+              <Text style={styles.patScopesTitle}>Required scopes</Text>
+              <View style={styles.patScopeRow}>
+                <Ionicons name="checkmark-circle" size={14} color={COLORS.success} />
+                <Text style={styles.patScopeText}>repo</Text>
+              </View>
+              <View style={styles.patScopeRow}>
+                <Ionicons name="checkmark-circle" size={14} color={COLORS.success} />
+                <Text style={styles.patScopeText}>read:user</Text>
+              </View>
+            </View>
+
+            <Text style={styles.patHint}>
+              Generate a token at{' '}
+              <Text style={styles.patHintLink}>github.com/settings/tokens</Text>
+              {' '}(classic tokens, not fine-grained).
+            </Text>
+
+            {/* Token input */}
+            <TextInput
+              style={styles.patInput}
+              value={token}
+              onChangeText={setToken}
+              placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+              placeholderTextColor={COLORS.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry
+              returnKeyType="done"
+              onSubmitEditing={handleConnect}
+              editable={!isLoading}
+            />
+
+            {/* Inline error */}
+            {error ? (
+              <View style={styles.patError}>
+                <Ionicons name="alert-circle" size={14} color={COLORS.error} />
+                <Text style={styles.patErrorText}>{error}</Text>
+              </View>
+            ) : null}
+
+            {/* Connect button */}
+            <TouchableOpacity
+              style={[
+                styles.patConnectButton,
+                (isLoading || !token.trim()) && styles.patConnectButtonDisabled,
+              ]}
+              onPress={handleConnect}
+              activeOpacity={0.8}
+              disabled={isLoading || !token.trim()}
+            >
+              {isLoading ? (
+                <ActivityIndicator size="small" color={COLORS.white} />
+              ) : (
+                <Text style={styles.patConnectButtonText}>Connect</Text>
+              )}
+            </TouchableOpacity>
+
+            {/* Cancel */}
+            <TouchableOpacity
+              style={styles.patCancelButton}
+              onPress={handleClose}
+              activeOpacity={0.8}
+              disabled={isLoading}
+            >
+              <Text style={styles.patCancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
   );
@@ -462,6 +492,7 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
   // ── Modal visibility ─────────────────────────────────────────────────────
   const [modelPickerVisible, setModelPickerVisible] = useState(false);
   const [cloneDirModalVisible, setCloneDirModalVisible] = useState(false);
+  const [patModalVisible, setPatModalVisible] = useState(false);
 
   // ── Providers ────────────────────────────────────────────────────────────
   const { options: modelOptions, isLoading: providersLoading } = useProviders();
@@ -469,14 +500,18 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
   // ── GitHub Auth ──────────────────────────────────────────────────────────
   const {
     connect: githubConnect,
-    cancel: githubCancel,
     disconnect: githubDisconnect,
     user: githubUser,
     isLoading: githubLoading,
     error: githubError,
-    userCode: githubUserCode,
-    verificationUri: githubVerificationUri,
   } = useGitHubAuth();
+
+  // Close the PAT modal automatically when connection succeeds
+  useEffect(() => {
+    if (githubUser && patModalVisible) {
+      setPatModalVisible(false);
+    }
+  }, [githubUser, patModalVisible]);
 
   // ── Server health (for version display) ──────────────────────────────────
   const { data: healthData } = useQuery({
@@ -544,9 +579,9 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
         ],
       );
     } else {
-      void githubConnect();
+      setPatModalVisible(true);
     }
-  }, [githubUser, githubConnect, githubDisconnect]);
+  }, [githubUser, githubDisconnect]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
@@ -720,14 +755,14 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
         </View>
       </ScrollView>
 
-      {/* Device Flow modal — visible while waiting for GitHub authorization */}
-      {githubUserCode && githubVerificationUri ? (
-        <DeviceFlowModal
-          userCode={githubUserCode}
-          verificationUri={githubVerificationUri}
-          onCancel={githubCancel}
-        />
-      ) : null}
+      {/* PAT modal — shown when user wants to connect a GitHub account */}
+      <PATModal
+        visible={patModalVisible}
+        onConnect={githubConnect}
+        onClose={() => setPatModalVisible(false)}
+        isLoading={githubLoading}
+        error={githubError}
+      />
 
       {/* Model picker modal */}
       <ModelPickerModal
@@ -978,68 +1013,88 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
   },
 
-  // ── Device Flow modal ───────────────────────────────────────────────────
-  deviceFlowBody: {
-    flex: 1,
+  // ── PAT modal ───────────────────────────────────────────────────────────
+  patBody: {
     padding: SPACING.lg,
     gap: SPACING.md,
   },
-  deviceFlowStep: {
+  patInstruction: {
     fontSize: FONT_SIZE.sm,
     color: COLORS.textSecondary,
     lineHeight: 20,
   },
-  deviceFlowUrlButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.xs,
-    paddingVertical: SPACING.xs,
-  },
-  deviceFlowUrl: {
-    fontSize: FONT_SIZE.sm,
-    color: COLORS.primary,
-    textDecorationLine: 'underline',
-  },
-  deviceFlowCodeCard: {
+  patScopesCard: {
     backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: BORDER_RADIUS.lg,
-    paddingVertical: SPACING.lg,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+    gap: SPACING.xs,
+  },
+  patScopesTitle: {
+    fontSize: FONT_SIZE.xs,
+    fontWeight: FONT_WEIGHT.semibold,
+    color: COLORS.textMuted,
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  patScopeRow: {
+    flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.xs,
   },
-  deviceFlowCode: {
-    fontSize: 32,
-    fontWeight: FONT_WEIGHT.bold,
+  patScopeText: {
+    fontSize: FONT_SIZE.sm,
     color: COLORS.text,
-    letterSpacing: 4,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
-  deviceFlowCopyHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  deviceFlowCopyText: {
+  patHint: {
     fontSize: FONT_SIZE.xs,
     color: COLORS.textMuted,
+    lineHeight: 18,
   },
-  deviceFlowWaiting: {
+  patHintLink: {
+    color: COLORS.primary,
+  },
+  patInput: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: BORDER_RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 2,
+    fontSize: FONT_SIZE.md,
+    color: COLORS.text,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  patError: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: SPACING.xs,
+  },
+  patErrorText: {
+    flex: 1,
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.error,
+    lineHeight: 18,
+  },
+  patConnectButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: BORDER_RADIUS.lg,
+    paddingVertical: SPACING.md,
     alignItems: 'center',
+    minHeight: 52,
     justifyContent: 'center',
-    gap: SPACING.sm,
-    marginTop: SPACING.sm,
   },
-  deviceFlowWaitingText: {
-    fontSize: FONT_SIZE.sm,
-    color: COLORS.textSecondary,
+  patConnectButtonDisabled: {
+    opacity: 0.5,
   },
-  deviceFlowFooter: {
-    padding: SPACING.lg,
-    paddingBottom: SPACING.xl,
+  patConnectButtonText: {
+    color: COLORS.white,
+    fontSize: FONT_SIZE.md,
+    fontWeight: FONT_WEIGHT.semibold,
   },
-  deviceFlowCancelButton: {
+  patCancelButton: {
     backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -1049,7 +1104,7 @@ const styles = StyleSheet.create({
     minHeight: 52,
     justifyContent: 'center',
   },
-  deviceFlowCancelText: {
+  patCancelButtonText: {
     color: COLORS.text,
     fontSize: FONT_SIZE.md,
     fontWeight: FONT_WEIGHT.semibold,
