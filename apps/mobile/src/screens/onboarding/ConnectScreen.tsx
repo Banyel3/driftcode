@@ -101,11 +101,10 @@ export function ConnectScreen({ navigation, route }: Props) {
     setServerUrl(normalised);
     setServerUsername(username);
     setServerPassword(password);
-    setIsConnected(true);
     setOnboardingComplete();
-
-    // Navigate to main app
-    navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+    // setIsConnected(true) triggers RootNavigator to switch to the main tab
+    // stack automatically — no explicit navigation.reset() needed.
+    setIsConnected(true);
   };
 
   return (

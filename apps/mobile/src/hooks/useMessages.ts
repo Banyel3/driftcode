@@ -57,7 +57,8 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
         username: serverUsername,
         password: serverPassword,
       });
-      return getMessages(client, sessionId);
+      const raw = await getMessages(client, sessionId);
+      return Array.isArray(raw) ? raw : [];
     },
     // Don't auto-refetch on window focus — SSE keeps us up-to-date.
     refetchOnWindowFocus: false,

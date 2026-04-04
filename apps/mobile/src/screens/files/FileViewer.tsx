@@ -22,6 +22,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONT_SIZE, SPACING, BORDER_RADIUS } from '../../constants';
 import { useFileContent } from '../../hooks/useFileContent';
+import { basenameSafe } from '../../utils/path';
 import { detectLang, SyntaxText } from './SyntaxText';
 
 // ---------------------------------------------------------------------------
@@ -70,7 +71,7 @@ export function FileViewer({
   const lang = detectLang(filePath);
 
   // Basename for the header
-  const filename = filePath.replace(/\\/g, '/').split('/').filter(Boolean).at(-1) ?? filePath;
+  const filename = basenameSafe(filePath) || filePath;
 
   const handleAction = useCallback(
     (action: ActionBtn) => {

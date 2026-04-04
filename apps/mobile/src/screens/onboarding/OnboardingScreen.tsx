@@ -4,9 +4,9 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   Image,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { RootStackScreenProps } from '../../navigation/types';
 import { COLORS, SPACING, FONT_SIZE, FONT_WEIGHT, BORDER_RADIUS } from '../../constants';
 
@@ -14,7 +14,7 @@ type Props = RootStackScreenProps<'Onboarding'>;
 
 export function OnboardingScreen({ navigation }: Props) {
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.content}>
         {/* Logo / hero */}
         <View style={styles.heroSection}>

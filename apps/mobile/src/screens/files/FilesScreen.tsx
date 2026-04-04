@@ -4,8 +4,9 @@
  * Two sub-views managed by local state:
  *
  *  Tree view  (selectedFile === null)
- *    - Collapsible file tree rooted at the active session's working directory
- *      (falls back to '/' if no session is active).
+ *    - Collapsible file tree rooted at the active session's working directory.
+ *    - If no session is active and no project is known, shows a CTA to open
+ *      a project first (never defaults to the server root '/').
  *    - Pull-to-refresh reloads the root directory listing.
  *    - Tapping a file → switches to File view.
  *    - Tapping a directory → expands / collapses in-place (handled by
@@ -61,7 +62,9 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
   const queryClient = useQueryClient();
 
   // ── Root path — use active session's dir if available ────────────────────
-  const [rootPath, setRootPath] = useState('/');
+  // Starts as null; only set to a real path once we have one.
+  // We NEVER default to '/' to avoid browsing the server filesystem root.
+  const [rootPath, setRootPath] = useState<string | null>(null);
 
   useEffect(() => {
     if (!activeSessionId || !serverUrl || !serverPassword) return;
@@ -72,9 +75,11 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
     });
     getSession(client, activeSessionId)
       .then((session) => {
-        if (session.path) setRootPath(session.path);
+        if (session.path && typeof session.path === 'string') {
+          setRootPath(session.path);
+        }
       })
-      .catch(() => {/* ignore — fall back to '/' */});
+      .catch(() => {/* ignore — keep rootPath as null */});
   }, [activeSessionId, serverUrl, serverPassword, serverUsername]);
 
   // ── File selection ────────────────────────────────────────────────────────
@@ -87,7 +92,10 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
   }, [routeFilePath]);
 
   // ── Root file tree ────────────────────────────────────────────────────────
-  const { entries, isLoading, isError, error, refresh } = useFileTree(rootPath);
+  const { entries, isLoading, isError, error, refresh } = useFileTree(
+    rootPath ?? '',
+    rootPath !== null,
+  );
 
   // ── Ask AI handler ────────────────────────────────────────────────────────
   const [isCreatingSession, setIsCreatingSession] = useState(false);
@@ -105,7 +113,7 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
         // Reuse active session if one exists, otherwise create a new one.
         let sessionId = activeSessionId;
         if (!sessionId) {
-          const session = await createSession(client, { path: rootPath });
+          const session = await createSession(client, rootPath ? { path: rootPath } : {});
           sessionId = session.id;
           setActiveSessionId(sessionId);
           queryClient.removeQueries({ queryKey: messageKeys.session(sessionId) });
@@ -145,23 +153,33 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
   // ── Tree view ─────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
+      {/* Header — only show path when we have one */}
       <View style={styles.header}>
         <Ionicons name="folder-open-outline" size={16} color={COLORS.warning} />
         <Text style={styles.rootPath} numberOfLines={1}>
-          {rootPath}
+          {rootPath ?? 'No project open'}
         </Text>
-        <TouchableOpacity
-          onPress={refresh}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          style={styles.refreshBtn}
-        >
-          <Ionicons name="refresh-outline" size={18} color={COLORS.textMuted} />
-        </TouchableOpacity>
+        {rootPath !== null && (
+          <TouchableOpacity
+            onPress={refresh}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={styles.refreshBtn}
+          >
+            <Ionicons name="refresh-outline" size={18} color={COLORS.textMuted} />
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* States */}
-      {isLoading ? (
+      {/* No-project CTA state */}
+      {rootPath === null ? (
+        <View style={styles.center}>
+          <Ionicons name="folder-open-outline" size={48} color={COLORS.textMuted} />
+          <Text style={styles.emptyTitle}>No project open</Text>
+          <Text style={styles.emptyBody}>
+            Open a project from the Projects tab or start a session from the Sessions tab to browse files here.
+          </Text>
+        </View>
+      ) : isLoading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={COLORS.primary} />
         </View>
@@ -210,15 +228,6 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
           {/* Bottom padding so last item isn't cut off */}
           <View style={styles.treePad} />
         </ScrollView>
-      )}
-
-      {/* No project open state */}
-      {!activeSessionId && entries.length === 0 && !isLoading && !isError && (
-        <View style={styles.upsell}>
-          <Text style={styles.upsellText}>
-            Open a session from the Sessions tab to browse its project files.
-          </Text>
-        </View>
       )}
     </SafeAreaView>
   );
@@ -295,24 +304,6 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
     fontFamily: 'Courier',
     textAlign: 'center',
-  },
-  // ── Upsell ─────────────────────────────────────────────────────────────
-  upsell: {
-    position: 'absolute',
-    bottom: SPACING.xl,
-    left: SPACING.lg,
-    right: SPACING.lg,
-    backgroundColor: COLORS.surfaceElevated,
-    borderRadius: BORDER_RADIUS.lg,
-    padding: SPACING.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  upsellText: {
-    fontSize: FONT_SIZE.sm,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-    lineHeight: 18,
   },
   // ── Creating session overlay ──────────────────────────────────────────
   creatingOverlay: {

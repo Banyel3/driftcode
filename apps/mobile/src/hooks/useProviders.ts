@@ -66,31 +66,53 @@ export function useProviders(): UseProvidersResult {
   >({
     queryKey: providerKeys.configured,
     enabled: serverUrl !== null && serverPassword !== null,
-    queryFn: async () => {
+    queryFn: async (): Promise<ProviderInfo[]> => {
       if (!serverUrl || !serverPassword) return [];
       const client = createOpenCodeClient({
         serverUrl,
         username: serverUsername,
         password: serverPassword,
       });
-      return getConfiguredProviders(client);
+      const raw = await getConfiguredProviders(client);
+      // The server may return an object map instead of an array depending on
+      // the opencode version — normalise to array defensively.
+      if (Array.isArray(raw)) return raw;
+      if (raw && typeof raw === 'object') return Object.values(raw) as ProviderInfo[];
+      return [];
     },
     staleTime: 5 * 60_000, // 5 minutes — providers rarely change
     refetchOnWindowFocus: false,
   });
 
-  const providers = data ?? [];
+  const providers = Array.isArray(data) ? data : [];
 
-  // Flatten providers → models into a single list for use in pickers
+  // Flatten providers → models into a single list for use in pickers.
+  // Defensively validate every field — the server shape varies by version.
   const options: ProviderModelOption[] = providers.flatMap(
-    (provider: ProviderInfo) =>
-      provider.models.map((model: ModelInfo) => ({
-        providerId: provider.id,
-        providerName: provider.name,
-        modelId: model.id,
-        modelName: model.name,
-        contextLength: model.contextLength,
-      })),
+    (provider: ProviderInfo) => {
+      if (
+        !provider ||
+        typeof provider.id !== 'string' ||
+        typeof provider.name !== 'string'
+      ) {
+        return [];
+      }
+      const models = Array.isArray(provider.models) ? provider.models : [];
+      return models
+        .filter(
+          (model: ModelInfo) =>
+            model != null &&
+            typeof model.id === 'string' &&
+            typeof model.name === 'string',
+        )
+        .map((model: ModelInfo) => ({
+          providerId: provider.id,
+          providerName: provider.name,
+          modelId: model.id,
+          modelName: model.name,
+          contextLength: model.contextLength,
+        }));
+    },
   );
 
   return {

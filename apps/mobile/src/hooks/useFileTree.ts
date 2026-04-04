@@ -43,7 +43,10 @@ export function useFileTree(dirPath: string, enabled = true): UseFileTreeResult 
         username: serverUsername,
         password: serverPassword,
       });
-      const entries = await listFiles(client, dirPath);
+      const raw = await listFiles(client, dirPath);
+      const entries: FileEntry[] = Array.isArray(raw)
+        ? raw.filter((e): e is FileEntry => e != null && typeof e.path === 'string')
+        : [];
       // Sort: directories first, then files, both alphabetically.
       return [...entries].sort((a, b) => {
         if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;

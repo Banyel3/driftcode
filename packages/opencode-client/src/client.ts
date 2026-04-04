@@ -34,6 +34,12 @@ export class OpenCodeClient {
   private readonly authHeader: string;
 
   constructor(config: OpenCodeClientConfig) {
+    if (typeof config.serverUrl !== 'string' || config.serverUrl.trim() === '') {
+      throw new Error(
+        'OpenCodeClient: serverUrl must be a non-empty string. ' +
+        `Received: ${JSON.stringify(config.serverUrl)}`,
+      );
+    }
     this.baseUrl = config.serverUrl.replace(/\/$/, '');
     // React Native has global `btoa` since RN 0.71
     const credentials = btoa(`${config.username}:${config.password}`);

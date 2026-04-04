@@ -40,7 +40,8 @@ export function useServerProjects(): UseServerProjectsResult {
         username: serverUsername,
         password: serverPassword,
       });
-      return listProjects(client);
+      const raw = await listProjects(client);
+      return Array.isArray(raw) ? raw : [];
     },
     staleTime: 60_000,
     refetchOnWindowFocus: false,

@@ -57,7 +57,8 @@ export function useGitHubRepos(searchQuery: string): UseGitHubReposResult {
     queryFn: async () => {
       if (!githubToken) return [];
       const client = createGitHubClient({ token: githubToken });
-      return listUserRepos(client, { perPage: 100, sort: 'updated' });
+      const raw = await listUserRepos(client, { perPage: 100, sort: 'updated' });
+      return Array.isArray(raw) ? raw : [];
     },
     staleTime: 5 * 60_000,
     refetchOnWindowFocus: false,
@@ -81,7 +82,8 @@ export function useGitHubRepos(searchQuery: string): UseGitHubReposResult {
       const userQuery = `${trimmed} user:${(await import('@driftcode/github-client').then((m) =>
         m.getAuthenticatedUser(client)
       )).login}`;
-      return searchRepos(client, userQuery, 1, 30);
+      const raw = await searchRepos(client, userQuery, 1, 30);
+      return Array.isArray(raw) ? raw : [];
     },
     staleTime: 30_000,
     refetchOnWindowFocus: false,

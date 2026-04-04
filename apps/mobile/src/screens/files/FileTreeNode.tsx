@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { FileEntry } from '@driftcode/opencode-client';
 import { COLORS, FONT_SIZE, SPACING } from '../../constants';
 import { useFileTree } from '../../hooks/useFileTree';
+import { basenameSafe } from '../../utils/path';
 
 // ---------------------------------------------------------------------------
 // File-extension → icon map
@@ -60,7 +61,7 @@ function fileIcon(name: string): { icon: IoniconName; color: string } {
 
 /** Last path segment (filename or directory name) */
 function basename(path: string): string {
-  return path.replace(/\\/g, '/').split('/').filter(Boolean).at(-1) ?? path;
+  return basenameSafe(path) || path;
 }
 
 // ---------------------------------------------------------------------------

@@ -69,7 +69,8 @@ export function useSessions(): UseSessionsResult {
         username: serverUsername,
         password: serverPassword,
       });
-      return listSessions(client);
+      const raw = await listSessions(client);
+      return Array.isArray(raw) ? raw : [];
     },
     refetchOnWindowFocus: false,
     staleTime: 30_000,

@@ -21,6 +21,7 @@ import {
   BORDER_RADIUS,
   MIN_TOUCH_TARGET,
 } from '../../constants';
+import { basenameSafe, shortPathSafe } from '../../utils/path';
 
 interface ProjectCardProps {
   project: Project;
@@ -30,15 +31,12 @@ interface ProjectCardProps {
 /** Extract the last segment of a path as a display name. */
 function projectDisplayName(project: Project): string {
   if (project.name?.trim()) return project.name.trim();
-  const parts = project.path.replace(/\\/g, '/').split('/').filter(Boolean);
-  return parts.at(-1) ?? project.path;
+  return basenameSafe(project.path) || (project.path ?? 'Unknown project');
 }
 
 /** Shorten the path for display. */
 function shortPath(path: string): string {
-  const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
-  if (parts.length <= 3) return path;
-  return `…/${parts.slice(-3).join('/')}`;
+  return shortPathSafe(path, 3) ?? path;
 }
 
 export const ProjectCard = memo(function ProjectCard({
