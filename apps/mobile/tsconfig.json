@@ -1,0 +1,26 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@driftcode/opencode-client": [
+        "../../packages/opencode-client/src/index.ts"
+      ],
+      "@driftcode/opencode-client/*": [
+        "../../packages/opencode-client/src/*"
+      ],
+      "@driftcode/github-client": [
+        "../../packages/github-client/src/index.ts"
+      ],
+      "@driftcode/github-client/*": [
+        "../../packages/github-client/src/*"
+      ]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.d.ts"
+  ]
+}

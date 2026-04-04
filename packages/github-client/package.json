@@ -1,0 +1,17 @@
+{
+  "name": "@driftcode/github-client",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@octokit/rest": "^21.0.2",
+    "@octokit/types": "^13.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

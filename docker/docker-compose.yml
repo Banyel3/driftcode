@@ -1,0 +1,32 @@
+# ─── DriftCode Docker Compose ─────────────────────────────────────────────────
+#
+# Usage:
+#   One-command install: curl -fsSL https://driftcode.dev/install | bash
+#   Manual:              cp .env.example .env && docker compose up -d
+#
+# After starting, connect an LLM provider by SSH-ing into your server and
+# running `opencode` → `/connect` in the TUI.
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+  opencode:
+    # DriftCode's extended image: opencode + gh CLI + git
+    # Use the official opencode image directly if you don't need gh CLI:
+    #   image: ghcr.io/anomalyco/opencode:latest
+    image: ghcr.io/driftcode/server:latest
+    restart: unless-stopped
+    environment:
+      - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}
+      - OPENCODE_SERVER_USERNAME=${OPENCODE_SERVER_USERNAME:-opencode}
+      # Optional: inject a GitHub token so gh CLI is pre-authenticated
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+    ports:
+      - "${SERVER_PORT:-4096}:4096"
+    volumes:
+      # Your projects are persisted here. Back this up!
+      - ./projects:/home/user/projects
+      # opencode config (providers, settings) is persisted here
+      - opencode_config:/home/user/.config/opencode
+
+volumes:
+  opencode_config:
