@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Switch,
   type TextInput as TextInputType,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -31,17 +32,28 @@ type Props = RootStackScreenProps<'Connect'>;
 export function ConnectScreen({ navigation, route }: Props) {
   const isDemo = route.params?.demo === true;
 
-  // ── Store actions ──────────────────────────────────────────────────────────
+  // ── Store ──────────────────────────────────────────────────────────────────
+  const storedUrl = useConnectionStore((s) => s.serverUrl);
+  const storedUsername = useConnectionStore((s) => s.serverUsername);
+  const storedPassword = useConnectionStore((s) => s.serverPassword);
+  const rememberCredentials = useConnectionStore((s) => s.rememberCredentials);
+  const setRememberCredentials = useConnectionStore((s) => s.setRememberCredentials);
   const setServerUrl = useConnectionStore((s) => s.setServerUrl);
   const setServerUsername = useConnectionStore((s) => s.setServerUsername);
   const setServerPassword = useConnectionStore((s) => s.setServerPassword);
   const setIsConnected = useConnectionStore((s) => s.setIsConnected);
   const setOnboardingComplete = useConnectionStore((s) => s.setOnboardingComplete);
 
-  // ── Local form state ───────────────────────────────────────────────────────
-  const [url, setUrl] = useState(isDemo ? DEMO_SERVER_URL : '');
-  const [username, setUsername] = useState(DEFAULT_SERVER_USERNAME);
-  const [password, setPassword] = useState('');
+  // ── Local form state — pre-fill from store when remember is on ─────────────
+  const [url, setUrl] = useState(
+    isDemo
+      ? DEMO_SERVER_URL
+      : (rememberCredentials && storedUrl) ? storedUrl : '',
+  );
+  const [username, setUsername] = useState(storedUsername || DEFAULT_SERVER_USERNAME);
+  const [password, setPassword] = useState(
+    (rememberCredentials && storedPassword) ? storedPassword : '',
+  );
   const [showPassword, setShowPassword] = useState(false);
 
   // ── Refs for keyboard navigation ───────────────────────────────────────────
@@ -97,14 +109,22 @@ export function ConnectScreen({ navigation, route }: Props) {
       normalised = `https://${normalised}`;
     }
 
-    // Persist to store / SecureStore
+    // Persist to store / SecureStore (setServerUrl/Password respect rememberCredentials)
     setServerUrl(normalised);
     setServerUsername(username);
     setServerPassword(password);
     setOnboardingComplete();
-    // setIsConnected(true) triggers RootNavigator to switch to the main tab
-    // stack automatically — no explicit navigation.reset() needed.
     setIsConnected(true);
+  };
+
+  // ── Remember-me toggle ─────────────────────────────────────────────────────
+  const handleToggleRemember = (value: boolean) => {
+    setRememberCredentials(value);
+    if (!value) {
+      // Clear form fields so the user sees the effect immediately
+      setUrl(isDemo ? DEMO_SERVER_URL : '');
+      setPassword('');
+    }
   };
 
   return (
@@ -220,6 +240,37 @@ export function ConnectScreen({ navigation, route }: Props) {
               </View>
             </View>
 
+            {/* Remember me toggle */}
+            {!isDemo && (
+              <View style={styles.rememberRow}>
+                <View style={styles.rememberLeft}>
+                  <Ionicons
+                    name={rememberCredentials ? 'bookmark' : 'bookmark-outline'}
+                    size={18}
+                    color={rememberCredentials ? COLORS.primary : COLORS.textSecondary}
+                  />
+                  <View style={styles.rememberText}>
+                    <Text style={styles.rememberLabel}>Remember credentials</Text>
+                    <Text style={styles.rememberHint}>
+                      {rememberCredentials
+                        ? 'URL and password are saved to this device.'
+                        : 'Credentials will not be saved to disk.'}
+                    </Text>
+                  </View>
+                </View>
+                <Switch
+                  value={rememberCredentials}
+                  onValueChange={handleToggleRemember}
+                  trackColor={{
+                    false: COLORS.border,
+                    true: COLORS.primary + '80',
+                  }}
+                  thumbColor={rememberCredentials ? COLORS.primary : COLORS.textMuted}
+                  ios_backgroundColor={COLORS.border}
+                />
+              </View>
+            )}
+
             {/* Status message */}
             {statusMessage && (
               <View
@@ -288,8 +339,9 @@ export function ConnectScreen({ navigation, route }: Props) {
           <View style={styles.securityNote}>
             <Ionicons name="lock-closed" size={14} color={COLORS.textMuted} />
             <Text style={styles.securityText}>
-              Credentials are stored encrypted on-device using Expo SecureStore.
-              They are never sent anywhere except your own server.
+              {rememberCredentials
+                ? 'Credentials are stored encrypted on-device using Expo SecureStore. They are never sent anywhere except your own server.'
+                : 'Credentials are held in memory only and will be cleared when the app closes.'}
             </Text>
           </View>
         </ScrollView>
@@ -372,6 +424,40 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: SPACING.md,
     padding: SPACING.xs,
+  },
+
+  // Remember me
+  rememberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: BORDER_RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 2,
+    gap: SPACING.md,
+  },
+  rememberLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  rememberText: {
+    flex: 1,
+    gap: 2,
+  },
+  rememberLabel: {
+    fontSize: FONT_SIZE.sm,
+    fontWeight: FONT_WEIGHT.medium,
+    color: COLORS.text,
+  },
+  rememberHint: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textMuted,
+    lineHeight: 16,
   },
 
   // Status banner
