@@ -21,13 +21,9 @@ export const SECURE_STORE_KEYS = {
   REMEMBER_CREDENTIALS: 'driftcode_remember_credentials',
 } as const;
 
-// GitHub OAuth — credentials come from .env.local (never committed)
-// Both CLIENT_ID and CLIENT_SECRET use EXPO_PUBLIC_ prefix so Metro inlines
-// them into the JS bundle at build/start time. Do not log CLIENT_SECRET.
+// GitHub OAuth — CLIENT_ID comes from .env.local (never committed).
+// Device Flow only needs CLIENT_ID — no client secret required.
 export const GITHUB_OAUTH = {
   CLIENT_ID: process.env['EXPO_PUBLIC_GITHUB_CLIENT_ID'] ?? '',
-  CLIENT_SECRET: process.env['EXPO_PUBLIC_GITHUB_CLIENT_SECRET'] ?? '',
   SCOPES: ['repo', 'read:user'],
-  /** Deep-link scheme defined in app.json */
-  REDIRECT_URI: 'driftcode://github-callback',
 } as const;

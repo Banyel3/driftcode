@@ -23,10 +23,12 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
+  Clipboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
+import * as WebBrowser from 'expo-web-browser';
 import { useQuery } from '@tanstack/react-query';
 import { getHealth, createOpenCodeClient } from '@driftcode/opencode-client';
 import type { ProviderModelOption } from '../../hooks/useProviders';
@@ -123,6 +125,100 @@ function Divider() {
         { marginLeft: SPACING.md + 20 + SPACING.sm },
       ]}
     />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Device Flow modal — shown while waiting for GitHub Device Flow authorization
+// ---------------------------------------------------------------------------
+
+interface DeviceFlowModalProps {
+  userCode: string;
+  verificationUri: string;
+  onCancel: () => void;
+}
+
+function DeviceFlowModal({ userCode, verificationUri, onCancel }: DeviceFlowModalProps) {
+  const handleCopyCode = useCallback(() => {
+    Clipboard.setString(userCode);
+  }, [userCode]);
+
+  const handleOpenBrowser = useCallback(() => {
+    void WebBrowser.openBrowserAsync(verificationUri);
+  }, [verificationUri]);
+
+  return (
+    <Modal
+      visible
+      animationType="slide"
+      presentationStyle="formSheet"
+      onRequestClose={onCancel}
+    >
+      <SafeAreaView style={styles.modalContainer} edges={['top', 'bottom']}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Authorize on GitHub</Text>
+          <TouchableOpacity
+            onPress={onCancel}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="close" size={24} color={COLORS.text} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.deviceFlowBody}>
+          {/* Instruction */}
+          <Text style={styles.deviceFlowStep}>
+            1. Open the link below in your browser (it may have opened automatically)
+          </Text>
+          <TouchableOpacity
+            style={styles.deviceFlowUrlButton}
+            onPress={handleOpenBrowser}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="open-outline" size={16} color={COLORS.primary} />
+            <Text style={styles.deviceFlowUrl}>{verificationUri}</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.deviceFlowStep}>
+            2. Enter this code on the GitHub page:
+          </Text>
+
+          {/* Big code display */}
+          <TouchableOpacity
+            style={styles.deviceFlowCodeCard}
+            onPress={handleCopyCode}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.deviceFlowCode}>{userCode}</Text>
+            <View style={styles.deviceFlowCopyHint}>
+              <Ionicons name="copy-outline" size={14} color={COLORS.textMuted} />
+              <Text style={styles.deviceFlowCopyText}>Tap to copy</Text>
+            </View>
+          </TouchableOpacity>
+
+          <Text style={styles.deviceFlowStep}>3. Click Authorize on the GitHub page</Text>
+
+          {/* Polling indicator */}
+          <View style={styles.deviceFlowWaiting}>
+            <ActivityIndicator size="small" color={COLORS.primary} />
+            <Text style={styles.deviceFlowWaitingText}>
+              Waiting for authorization…
+            </Text>
+          </View>
+        </View>
+
+        {/* Cancel */}
+        <View style={styles.deviceFlowFooter}>
+          <TouchableOpacity
+            style={styles.deviceFlowCancelButton}
+            onPress={onCancel}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.deviceFlowCancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </Modal>
   );
 }
 
@@ -373,10 +469,13 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
   // ── GitHub Auth ──────────────────────────────────────────────────────────
   const {
     connect: githubConnect,
+    cancel: githubCancel,
     disconnect: githubDisconnect,
     user: githubUser,
     isLoading: githubLoading,
     error: githubError,
+    userCode: githubUserCode,
+    verificationUri: githubVerificationUri,
   } = useGitHubAuth();
 
   // ── Server health (for version display) ──────────────────────────────────
@@ -620,6 +719,15 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
           </Text>
         </View>
       </ScrollView>
+
+      {/* Device Flow modal — visible while waiting for GitHub authorization */}
+      {githubUserCode && githubVerificationUri ? (
+        <DeviceFlowModal
+          userCode={githubUserCode}
+          verificationUri={githubVerificationUri}
+          onCancel={githubCancel}
+        />
+      ) : null}
 
       {/* Model picker modal */}
       <ModelPickerModal
@@ -868,6 +976,83 @@ const styles = StyleSheet.create({
   modelMeta: {
     fontSize: FONT_SIZE.xs,
     color: COLORS.textMuted,
+  },
+
+  // ── Device Flow modal ───────────────────────────────────────────────────
+  deviceFlowBody: {
+    flex: 1,
+    padding: SPACING.lg,
+    gap: SPACING.md,
+  },
+  deviceFlowStep: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.textSecondary,
+    lineHeight: 20,
+  },
+  deviceFlowUrlButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    paddingVertical: SPACING.xs,
+  },
+  deviceFlowUrl: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.primary,
+    textDecorationLine: 'underline',
+  },
+  deviceFlowCodeCard: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: BORDER_RADIUS.lg,
+    paddingVertical: SPACING.lg,
+    alignItems: 'center',
+    gap: SPACING.xs,
+  },
+  deviceFlowCode: {
+    fontSize: 32,
+    fontWeight: FONT_WEIGHT.bold,
+    color: COLORS.text,
+    letterSpacing: 4,
+  },
+  deviceFlowCopyHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  deviceFlowCopyText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textMuted,
+  },
+  deviceFlowWaiting: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.sm,
+    marginTop: SPACING.sm,
+  },
+  deviceFlowWaitingText: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.textSecondary,
+  },
+  deviceFlowFooter: {
+    padding: SPACING.lg,
+    paddingBottom: SPACING.xl,
+  },
+  deviceFlowCancelButton: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: BORDER_RADIUS.lg,
+    paddingVertical: SPACING.md,
+    alignItems: 'center',
+    minHeight: 52,
+    justifyContent: 'center',
+  },
+  deviceFlowCancelText: {
+    color: COLORS.text,
+    fontSize: FONT_SIZE.md,
+    fontWeight: FONT_WEIGHT.semibold,
   },
 
   // ── Clone directory modal ───────────────────────────────────────────────
