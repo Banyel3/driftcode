@@ -12,6 +12,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
+import Constants from 'expo-constants';
 import { createGitHubClient, getAuthenticatedUser } from '@driftcode/github-client';
 import type { GitHubUser } from '@driftcode/github-client';
 import { useConnectionStore } from '../store';
@@ -49,9 +50,17 @@ export function useGitHubAuth(): UseGitHubAuthResult {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Build the PKCE auth request
-  // useProxy routes the callback through auth.expo.io so Expo Go can intercept it.
-  const redirectUri = AuthSession.makeRedirectUri({ scheme: 'driftcode', path: 'github-callback' });
+  // Build the redirect URI.
+  // In Expo Go the custom scheme (driftcode://) is not directly reachable from
+  // an external browser, so we use the Expo auth proxy which forwards the
+  // callback back into the running Expo Go session.
+  // Proxy URL format: https://auth.expo.io/@{owner}/{slug}
+  // This must match the Authorization callback URL in your GitHub OAuth App.
+  const owner = Constants.expoConfig?.owner ?? '';
+  const slug = Constants.expoConfig?.slug ?? 'driftcode';
+  const redirectUri = owner
+    ? `https://auth.expo.io/@${owner}/${slug}`
+    : AuthSession.makeRedirectUri({ scheme: 'driftcode', path: 'github-callback' });
 
   const discovery = {
     authorizationEndpoint: 'https://github.com/login/oauth/authorize',
