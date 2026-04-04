@@ -94,17 +94,15 @@ export function RootNavigator() {
           <Stack.Screen name="Main" component={MainTabs} />
         ) : (
           // ── Onboarding stack ─────────────────────────────────────────────
-          <>
-            <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-            <Stack.Screen
-              name="Connect"
-              component={ConnectScreen}
-              options={{
-                animation: 'slide_from_right',
-              }}
-            />
-          </>
+          <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         )}
+        {/* Connect is always registered so Settings can navigate to it
+            regardless of whether the user is currently connected. */}
+        <Stack.Screen
+          name="Connect"
+          component={ConnectScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );
