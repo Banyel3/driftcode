@@ -20,10 +20,12 @@ export const SECURE_STORE_KEYS = {
   CLONE_DIRECTORY: 'driftcode_clone_directory',
 } as const;
 
-// GitHub OAuth — Client ID comes from app.json extra (set via EAS Secrets in CI)
+// GitHub OAuth — credentials come from .env.local (never committed)
+// CLIENT_ID is safe to bundle (EXPO_PUBLIC_ prefix makes it available at runtime)
+// CLIENT_SECRET is inlined by Metro at build/start time only — do not log it
 export const GITHUB_OAUTH = {
-  /** Override via EXPO_PUBLIC_GITHUB_CLIENT_ID env var or app.json extra */
   CLIENT_ID: process.env['EXPO_PUBLIC_GITHUB_CLIENT_ID'] ?? '',
+  CLIENT_SECRET: process.env['GITHUB_CLIENT_SECRET'] ?? '',
   SCOPES: ['repo', 'read:user'],
   /** Deep-link scheme defined in app.json */
   REDIRECT_URI: 'driftcode://github-callback',

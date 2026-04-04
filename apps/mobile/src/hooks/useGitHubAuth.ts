@@ -50,7 +50,8 @@ export function useGitHubAuth(): UseGitHubAuthResult {
   const [error, setError] = useState<string | null>(null);
 
   // Build the PKCE auth request
-  const redirectUri = AuthSession.makeRedirectUri({ scheme: 'driftcode' });
+  // useProxy routes the callback through auth.expo.io so Expo Go can intercept it.
+  const redirectUri = AuthSession.makeRedirectUri({ scheme: 'driftcode', path: 'github-callback' });
 
   const discovery = {
     authorizationEndpoint: 'https://github.com/login/oauth/authorize',
@@ -113,6 +114,7 @@ export function useGitHubAuth(): UseGitHubAuthResult {
               },
               body: new URLSearchParams({
                 client_id: GITHUB_OAUTH.CLIENT_ID,
+                client_secret: GITHUB_OAUTH.CLIENT_SECRET,
                 code,
                 redirect_uri: redirectUri,
               }).toString(),
@@ -151,7 +153,13 @@ export function useGitHubAuth(): UseGitHubAuthResult {
   const connect = useCallback(async () => {
     if (!GITHUB_OAUTH.CLIENT_ID) {
       setError(
-        'GitHub OAuth is not configured. Set EXPO_PUBLIC_GITHUB_CLIENT_ID.',
+        'GitHub OAuth is not configured. Set EXPO_PUBLIC_GITHUB_CLIENT_ID in apps/mobile/.env.local',
+      );
+      return;
+    }
+    if (!GITHUB_OAUTH.CLIENT_SECRET) {
+      setError(
+        'GitHub OAuth client secret is not configured. Set GITHUB_CLIENT_SECRET in apps/mobile/.env.local',
       );
       return;
     }
