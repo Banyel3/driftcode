@@ -22,11 +22,11 @@ export const SECURE_STORE_KEYS = {
 } as const;
 
 // GitHub OAuth — credentials come from .env.local (never committed)
-// CLIENT_ID is safe to bundle (EXPO_PUBLIC_ prefix makes it available at runtime)
-// CLIENT_SECRET is inlined by Metro at build/start time only — do not log it
+// Both CLIENT_ID and CLIENT_SECRET use EXPO_PUBLIC_ prefix so Metro inlines
+// them into the JS bundle at build/start time. Do not log CLIENT_SECRET.
 export const GITHUB_OAUTH = {
   CLIENT_ID: process.env['EXPO_PUBLIC_GITHUB_CLIENT_ID'] ?? '',
-  CLIENT_SECRET: process.env['GITHUB_CLIENT_SECRET'] ?? '',
+  CLIENT_SECRET: process.env['EXPO_PUBLIC_GITHUB_CLIENT_SECRET'] ?? '',
   SCOPES: ['repo', 'read:user'],
   /** Deep-link scheme defined in app.json */
   REDIRECT_URI: 'driftcode://github-callback',

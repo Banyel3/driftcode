@@ -14,7 +14,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef } from 'react';
 import { getMessages, createOpenCodeClient } from '@driftcode/opencode-client';
-import type { Message, OpenCodeEvent } from '@driftcode/opencode-client';
+import type { Message, MessagePart, OpenCodeEvent } from '@driftcode/opencode-client';
 import { useConnectionStore } from '../store';
 import { useSSEStream } from './useSSEStream';
 
@@ -112,7 +112,7 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
   const isStreaming =
     lastMsg?.role === 'assistant' &&
     lastMsg.parts.every(
-      (p) =>
+      (p: MessagePart) =>
         p.type !== 'text' ||
         (p.type === 'text' && (p as { text: string }).text === ''),
     );
