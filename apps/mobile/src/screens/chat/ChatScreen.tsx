@@ -352,7 +352,9 @@ export function ChatScreen({ route }: ChatScreenProps) {
                 </Text>
               </View>
             }
-            showsVerticalScrollIndicator={false}
+            showsVerticalScrollIndicator
+            indicatorStyle="white"
+            persistentScrollbar
             // Keep list scrolled to the latest message.
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
           />

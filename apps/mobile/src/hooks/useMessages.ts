@@ -18,14 +18,26 @@ import type { Message, MessagePart, ToolInvocationPart, TextPart, OpenCodeEvent 
 import { useConnectionStore } from '../store';
 import { useSSEStream } from './useSSEStream';
 
+function toMessageKey(msg: Message, fallbackIndex: number): string {
+  if (typeof msg.id === 'string' && msg.id.trim().length > 0) {
+    return msg.id;
+  }
+
+  const firstPart = msg.parts[0];
+  const seed =
+    firstPart?.type === 'text'
+      ? (firstPart as TextPart).text.slice(0, 24)
+      : firstPart?.type ?? 'none';
+
+  return `synthetic-${msg.role}-${msg.createdAt}-${seed}-${fallbackIndex}`;
+}
+
 function normalizeMessages(messages: Message[]): Message[] {
   if (messages.length <= 1) return messages;
   const deduped = new Map<string, Message>();
-  let syntheticCounter = 0;
-  for (const msg of messages) {
-    const id = typeof msg.id === 'string' && msg.id.trim().length > 0
-      ? msg.id
-      : `synthetic-${msg.role}-${msg.createdAt}-${syntheticCounter++}`;
+  for (let i = 0; i < messages.length; i += 1) {
+    const msg = messages[i];
+    const id = toMessageKey(msg, i);
     deduped.set(id, { ...msg, id });
   }
   return Array.from(deduped.values()).sort((a, b) => a.createdAt - b.createdAt);
@@ -71,7 +83,14 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
         password: serverPassword,
       });
       const raw = await getMessages(client, sessionId);
-      return normalizeMessages(Array.isArray(raw) ? raw : []);
+      const serverMessages = Array.isArray(raw) ? raw : [];
+
+      // Keep local optimistic user messages visible across refetches until
+      // the authoritative SSE user echo arrives and replaces them.
+      const cached = queryClient.getQueryData<Message[]>(messageKeys.session(sessionId)) ?? [];
+      const optimistic = cached.filter((m) => m.id.startsWith('optimistic-'));
+
+      return normalizeMessages([...serverMessages, ...optimistic]);
     },
     // Don't auto-refetch on window focus — SSE keeps us up-to-date.
     refetchOnWindowFocus: false,
