@@ -43,8 +43,9 @@ export function useTestConnection(): UseTestConnectionReturn {
       } catch (err: unknown) {
         let message = 'Could not connect to server.';
         if (err instanceof Error) {
-          // Surface something useful without leaking internals
-          if (err.message.includes('401') || err.message.toLowerCase().includes('unauthorized')) {
+          if (err.name === 'AbortError') {
+            message = 'Connection timed out. Is the server URL correct and reachable on this network?';
+          } else if (err.message.includes('401') || err.message.toLowerCase().includes('unauthorized')) {
             message = 'Wrong password. Check your credentials and try again.';
           } else if (err.message.includes('Network') || err.message.toLowerCase().includes('fetch')) {
             message = 'Network error. Check the URL and your internet connection.';

@@ -3,6 +3,9 @@ import type { APIErrorBody } from './types';
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
+
+const REQUEST_TIMEOUT_MS = 10_000;
+
 export interface OpenCodeClientConfig {
   serverUrl: string;
   username: string;
@@ -54,14 +57,23 @@ export class OpenCodeClient {
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
 
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: this.authHeader,
-        ...(options.headers as Record<string, string>),
-      },
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: this.authHeader,
+          ...(options.headers as Record<string, string>),
+        },
+      });
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!response.ok) {
       let error: APIErrorBody;

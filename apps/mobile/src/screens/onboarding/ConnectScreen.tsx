@@ -115,6 +115,13 @@ export function ConnectScreen({ navigation, route }: Props) {
     setServerPassword(password);
     setOnboardingComplete();
     setIsConnected(true);
+
+    // When navigating here from Settings → "Change Server", go back to Settings.
+    // During initial onboarding the stack hasn't been pushed so canGoBack() is false
+    // and the navigator switches stacks naturally via the isConnected conditional.
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    }
   };
 
   // ── Remember-me toggle ─────────────────────────────────────────────────────

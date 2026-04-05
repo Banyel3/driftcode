@@ -21,6 +21,20 @@ import { useConnectionStore } from '../store';
 // Public types
 // ---------------------------------------------------------------------------
 
+const GITHUB_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(
+        () => reject(new Error('GitHub request timed out. Check your internet connection.')),
+        ms,
+      )
+    ),
+  ]);
+}
+
 export interface UseGitHubAuthResult {
   /**
    * Validate and persist a Personal Access Token.
@@ -60,10 +74,10 @@ export function useGitHubAuth(): UseGitHubAuthResult {
   useEffect(() => {
     if (githubToken && !user) {
       setIsLoading(true);
-      fetchUser(githubToken)
+      withTimeout(fetchUser(githubToken), GITHUB_TIMEOUT_MS)
         .then((ghUser) => { setUser(ghUser); })
         .catch(() => {
-          // Stored token is no longer valid — wipe it so the UI shows disconnected
+          // Stored token is no longer valid (or timed out) — wipe it so the UI shows disconnected
           setGithubToken(null);
           setUser(null);
         })
@@ -87,14 +101,16 @@ export function useGitHubAuth(): UseGitHubAuthResult {
     setIsLoading(true);
 
     try {
-      const ghUser = await fetchUser(trimmed);
+      const ghUser = await withTimeout(fetchUser(trimmed), GITHUB_TIMEOUT_MS);
       // Token is valid — persist and set user
       setGithubToken(trimmed);
       setUser(ghUser);
-    } catch {
-      setError(
-        'Could not authenticate with GitHub. Make sure the token is valid and has the repo and read:user scopes.',
-      );
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error && err.message.includes('timed out')
+          ? err.message
+          : 'Could not authenticate with GitHub. Make sure the token is valid and has the repo and read:user scopes.';
+      setError(message);
     } finally {
       setIsLoading(false);
     }
