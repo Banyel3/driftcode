@@ -22,6 +22,7 @@ import { useConnectionStore } from '../store';
 import { messageKeys } from './useMessages';
 
 const SEND_RECONCILE_DELAY_MS = 2_000;
+const SEND_FALLBACK_REFETCH_MS = 7_000;
 
 export interface UseSendMessageResult {
   /** Send a text message.  Returns a promise that resolves once the fire-and-forget
@@ -74,6 +75,12 @@ export function useSendMessage(
       await sendMessageAsync(client, sessionId, {
         parts: [{ type: 'text', text }],
       });
+
+      // If SSE delivery is delayed/dropped by network middleboxes, this keeps
+      // chat state eventually consistent without requiring manual refresh.
+      setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: messageKeys.session(sessionId) });
+      }, SEND_FALLBACK_REFETCH_MS);
     },
     onError: (_err, _text) => {
       const err = _err;

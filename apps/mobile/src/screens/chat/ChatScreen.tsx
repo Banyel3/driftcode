@@ -274,7 +274,14 @@ export function ChatScreen({ route }: ChatScreenProps) {
     }
   }, [duplicateMessageIds]);
 
-  const keyExtractor = useCallback((item: Message) => item.id, []);
+  const keyExtractor = useCallback((item: Message, index: number) => {
+    if (typeof item.id === 'string' && item.id.trim().length > 0) {
+      return item.id;
+    }
+
+    const createdAt = typeof item.createdAt === 'number' ? item.createdAt : 0;
+    return `${item.role}-${createdAt}-${index}`;
+  }, []);
 
   // Must be a function reference, never a pre-rendered element — VirtualizedList
   // requires a component type or render fn for ListFooterComponent, not JSX.

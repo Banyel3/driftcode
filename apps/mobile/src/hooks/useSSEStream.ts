@@ -13,6 +13,45 @@ import { createOpenCodeClient } from '@driftcode/opencode-client';
 import type { OpenCodeEvent } from '@driftcode/opencode-client';
 import { useConnectionStore } from '../store';
 
+function readSSEBlocks(buffer: string): { blocks: string[]; rest: string } {
+  const blocks: string[] = [];
+  let rest = buffer;
+
+  while (true) {
+    const lfIdx = rest.indexOf('\n\n');
+    const crlfIdx = rest.indexOf('\r\n\r\n');
+
+    let sepIdx = -1;
+    let sepLen = 0;
+
+    if (lfIdx !== -1 && (crlfIdx === -1 || lfIdx < crlfIdx)) {
+      sepIdx = lfIdx;
+      sepLen = 2;
+    } else if (crlfIdx !== -1) {
+      sepIdx = crlfIdx;
+      sepLen = 4;
+    }
+
+    if (sepIdx === -1) break;
+
+    blocks.push(rest.slice(0, sepIdx));
+    rest = rest.slice(sepIdx + sepLen);
+  }
+
+  return { blocks, rest };
+}
+
+function parseSSEData(block: string): string | null {
+  const lines = block.split(/\r?\n/);
+  const dataLines = lines
+    .map((line) => line.trimStart())
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice('data:'.length).trimStart());
+
+  if (dataLines.length === 0) return null;
+  return dataLines.join('\n').trim();
+}
+
 export interface SSEStreamOptions {
   /** Called for every parsed OpenCodeEvent. */
   onEvent: (event: OpenCodeEvent) => void;
@@ -97,17 +136,11 @@ export function useSSEStream({ onEvent, onError, onReconnect, enabled }: SSEStre
 
         buffer += decoder.decode(value, { stream: true });
 
-        // SSE messages are separated by double newlines.
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() ?? '';
+        const { blocks, rest } = readSSEBlocks(buffer);
+        buffer = rest;
 
-        for (const block of parts) {
-          const dataLine = block
-            .split('\n')
-            .find((l) => l.startsWith('data:'));
-          if (!dataLine) continue;
-
-          const jsonStr = dataLine.slice('data:'.length).trim();
+        for (const block of blocks) {
+          const jsonStr = parseSSEData(block);
           if (!jsonStr || jsonStr === '[DONE]') continue;
 
           try {
@@ -118,6 +151,9 @@ export function useSSEStream({ onEvent, onError, onReconnect, enabled }: SSEStre
           }
         }
       }
+
+      // Some servers/proxies close SSE streams periodically. Reconnect.
+      throw new Error('SSE stream ended');
     } catch (err: unknown) {
       if ((err as { name?: string }).name === 'AbortError') return;
 

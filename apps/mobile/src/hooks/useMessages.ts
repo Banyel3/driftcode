@@ -21,8 +21,12 @@ import { useSSEStream } from './useSSEStream';
 function normalizeMessages(messages: Message[]): Message[] {
   if (messages.length <= 1) return messages;
   const deduped = new Map<string, Message>();
+  let syntheticCounter = 0;
   for (const msg of messages) {
-    deduped.set(msg.id, msg);
+    const id = typeof msg.id === 'string' && msg.id.trim().length > 0
+      ? msg.id
+      : `synthetic-${msg.role}-${msg.createdAt}-${syntheticCounter++}`;
+    deduped.set(id, { ...msg, id });
   }
   return Array.from(deduped.values()).sort((a, b) => a.createdAt - b.createdAt);
 }
