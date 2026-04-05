@@ -6,7 +6,12 @@ import type { GitHubRepo } from '@driftcode/github-client';
 
 export type ActiveProject =
   | { kind: 'server'; project: Project }
-  | { kind: 'github'; repo: GitHubRepo };
+  | {
+    kind: 'github';
+    repo: GitHubRepo;
+    selectedBranch?: string;
+    resolvedWorktree?: string | null;
+  };
 
 // ---------------------------------------------------------------------------
 // Shape
@@ -51,6 +56,8 @@ interface ConnectionState {
   setIsConnected: (connected: boolean) => void;
   setActiveSessionId: (sessionId: string | null) => void;
   setActiveProject: (project: ActiveProject | null) => void;
+  setGitHubProjectBranch: (branch: string) => void;
+  setGitHubProjectWorktree: (worktree: string | null) => void;
   clearActiveProject: () => void;
   setCloneDirectory: (dir: string) => void;
 
@@ -136,6 +143,30 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
     } else {
       void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT);
     }
+  },
+
+  setGitHubProjectBranch: (branch) => {
+    const current = get().activeProject;
+    if (!current || current.kind !== 'github') return;
+    if ((current.selectedBranch ?? current.repo.defaultBranch) === branch) return;
+    const next: ActiveProject = {
+      ...current,
+      selectedBranch: branch,
+    };
+    set({ activeProject: next });
+    void SecureStore.setItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT, JSON.stringify(next));
+  },
+
+  setGitHubProjectWorktree: (worktree) => {
+    const current = get().activeProject;
+    if (!current || current.kind !== 'github') return;
+    if ((current.resolvedWorktree ?? null) === worktree) return;
+    const next: ActiveProject = {
+      ...current,
+      resolvedWorktree: worktree,
+    };
+    set({ activeProject: next });
+    void SecureStore.setItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT, JSON.stringify(next));
   },
 
   clearActiveProject: () => {

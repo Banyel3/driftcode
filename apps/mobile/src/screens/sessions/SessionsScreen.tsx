@@ -9,7 +9,7 @@
  *   - FAB → create a new session and navigate to Chat
  *   - SSE stream keeps the list live without polling
  */
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -37,6 +37,11 @@ import { useConnectionStore } from '../../store';
 import { useSessions } from '../../hooks/useSessions';
 import { messageKeys } from '../../hooks/useMessages';
 import { SessionCard } from './SessionCard';
+import {
+  getActiveProjectWorktree,
+  getSessionWorktree,
+  pathsMatch,
+} from '../../utils/projectContext';
 import type { SessionListScreenProps } from '../../navigation/types';
 
 export function SessionsScreen({ navigation }: SessionListScreenProps) {
@@ -44,7 +49,9 @@ export function SessionsScreen({ navigation }: SessionListScreenProps) {
   const serverUsername = useConnectionStore((s) => s.serverUsername);
   const serverPassword = useConnectionStore((s) => s.serverPassword);
   const activeSessionId = useConnectionStore((s) => s.activeSessionId);
+  const activeProject = useConnectionStore((s) => s.activeProject);
   const setActiveSessionId = useConnectionStore((s) => s.setActiveSessionId);
+  const [scopeMode, setScopeMode] = useState<'project' | 'all'>('project');
 
   const queryClient = useQueryClient();
 
@@ -57,6 +64,13 @@ export function SessionsScreen({ navigation }: SessionListScreenProps) {
     isRefreshing,
     remove,
   } = useSessions();
+
+  const activeWorktree = getActiveProjectWorktree(activeProject);
+
+  const visibleSessions = useMemo(() => {
+    if (scopeMode === 'all' || !activeWorktree) return sessions;
+    return sessions.filter((session) => pathsMatch(getSessionWorktree(session), activeWorktree));
+  }, [scopeMode, activeWorktree, sessions]);
 
   // ── Open a session in the Chat tab ─────────────────────────────────────────
   const handleOpen = useCallback(
@@ -76,7 +90,10 @@ export function SessionsScreen({ navigation }: SessionListScreenProps) {
         username: serverUsername,
         password: serverPassword,
       });
-      const newSession = await createSession(client, {});
+      const newSession = await createSession(
+        client,
+        activeWorktree && scopeMode === 'project' ? { path: activeWorktree } : {},
+      );
       setActiveSessionId(newSession.id);
       // Clear any stale messages for the new session.
       queryClient.removeQueries({
@@ -89,7 +106,16 @@ export function SessionsScreen({ navigation }: SessionListScreenProps) {
         err instanceof Error ? err.message : String(err),
       );
     }
-  }, [serverUrl, serverPassword, serverUsername, setActiveSessionId, navigation, queryClient]);
+  }, [
+    serverUrl,
+    serverPassword,
+    serverUsername,
+    setActiveSessionId,
+    navigation,
+    queryClient,
+    activeWorktree,
+    scopeMode,
+  ]);
 
   // ── Render helpers ─────────────────────────────────────────────────────────
   const renderItem = useCallback(
@@ -110,7 +136,12 @@ export function SessionsScreen({ navigation }: SessionListScreenProps) {
   if (isError) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
-        <Header onCreate={handleCreate} />
+        <Header
+          onCreate={handleCreate}
+          scopeMode={scopeMode}
+          onChangeScope={setScopeMode}
+          hasProjectScope={activeWorktree !== null}
+        />
         <View style={styles.center}>
           <Ionicons name="warning-outline" size={48} color={COLORS.error} />
           <Text style={styles.errorText}>
@@ -125,8 +156,13 @@ export function SessionsScreen({ navigation }: SessionListScreenProps) {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <Header onCreate={handleCreate} />
+      <SafeAreaView style={styles.container} edges={['top']}>
+      <Header
+        onCreate={handleCreate}
+        scopeMode={scopeMode}
+        onChangeScope={setScopeMode}
+        hasProjectScope={activeWorktree !== null}
+      />
 
       {isLoading ? (
         <View style={styles.center}>
@@ -134,10 +170,10 @@ export function SessionsScreen({ navigation }: SessionListScreenProps) {
         </View>
       ) : (
         <FlatList
-          data={sessions}
+          data={visibleSessions}
           renderItem={renderItem}
           keyExtractor={keyExtractor}
-          contentContainerStyle={sessions.length === 0 ? styles.emptyContainer : undefined}
+          contentContainerStyle={visibleSessions.length === 0 ? styles.emptyContainer : undefined}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -155,9 +191,9 @@ export function SessionsScreen({ navigation }: SessionListScreenProps) {
               />
               <Text style={styles.emptyTitle}>No sessions yet</Text>
               <Text style={styles.emptyBody}>
-                Tap the{' '}
-                <Text style={styles.emptyHighlight}>+</Text>
-                {' '}button to start a new AI coding session.
+                {activeWorktree !== null && scopeMode === 'project'
+                  ? 'No sessions in this project yet. Tap + to start one.'
+                  : 'Tap the + button to start a new AI coding session.'}
               </Text>
             </View>
           }
@@ -180,10 +216,38 @@ export function SessionsScreen({ navigation }: SessionListScreenProps) {
 // ---------------------------------------------------------------------------
 // Header
 // ---------------------------------------------------------------------------
-function Header({ onCreate }: { onCreate: () => void }) {
+function Header({
+  onCreate,
+  scopeMode,
+  onChangeScope,
+  hasProjectScope,
+}: {
+  onCreate: () => void;
+  scopeMode: 'project' | 'all';
+  onChangeScope: (mode: 'project' | 'all') => void;
+  hasProjectScope: boolean;
+}) {
   return (
     <View style={styles.header}>
-      <Text style={styles.headerTitle}>Sessions</Text>
+      <View style={styles.headerLeft}>
+        <Text style={styles.headerTitle}>Sessions</Text>
+        {hasProjectScope && (
+          <View style={styles.scopeSwitch}>
+            <TouchableOpacity
+              style={[styles.scopeBtn, scopeMode === 'project' && styles.scopeBtnActive]}
+              onPress={() => onChangeScope('project')}
+            >
+              <Text style={[styles.scopeText, scopeMode === 'project' && styles.scopeTextActive]}>This Project</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.scopeBtn, scopeMode === 'all' && styles.scopeBtnActive]}
+              onPress={() => onChangeScope('all')}
+            >
+              <Text style={[styles.scopeText, scopeMode === 'all' && styles.scopeTextActive]}>All</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
       <TouchableOpacity style={styles.headerBtn} onPress={onCreate}>
         <Ionicons name="add-circle-outline" size={22} color={COLORS.primary} />
       </TouchableOpacity>
@@ -208,11 +272,38 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  headerTitle: {
+  headerLeft: {
     flex: 1,
+    gap: 6,
+  },
+  headerTitle: {
     fontSize: FONT_SIZE.lg,
     fontWeight: '700',
     color: COLORS.text,
+  },
+  scopeSwitch: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  scopeBtn: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: BORDER_RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+  },
+  scopeBtnActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: `${COLORS.primary}20`,
+  },
+  scopeText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
+  scopeTextActive: {
+    color: COLORS.primary,
   },
   headerBtn: {
     width: 44,

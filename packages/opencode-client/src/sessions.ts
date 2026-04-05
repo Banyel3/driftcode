@@ -1,5 +1,5 @@
 import type { OpenCodeClient } from './client';
-import type { Session, CreateSessionRequest } from './types';
+import type { Session, CreateSessionRequest, FileDiff } from './types';
 
 /**
  * GET /session
@@ -40,4 +40,17 @@ export async function deleteSession(
   sessionId: string,
 ): Promise<void> {
   return client.delete<void>(`/session/${sessionId}`);
+}
+
+/**
+ * GET /session/:id/diff?messageID=<messageID>
+ * Returns changed files for a specific message in a session.
+ */
+export async function getSessionDiff(
+  client: OpenCodeClient,
+  sessionId: string,
+  messageId: string,
+): Promise<FileDiff[]> {
+  const encodedMessageId = encodeURIComponent(messageId);
+  return client.get<FileDiff[]>(`/session/${sessionId}/diff?messageID=${encodedMessageId}`);
 }

@@ -19,7 +19,7 @@
  *    - "Ask AI" / quick action buttons create a session and open Chat.
  *    - Back button returns to the tree view.
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -48,8 +48,19 @@ import {
 import { useConnectionStore } from '../../store';
 import { useFileTree } from '../../hooks/useFileTree';
 import { messageKeys } from '../../hooks/useMessages';
+import { useServerProjects } from '../../hooks/useServerProjects';
+import { useSessions } from '../../hooks/useSessions';
+import { useMessages } from '../../hooks/useMessages';
+import { useSessionDiff } from '../../hooks/useSessionDiff';
 import { FileTreeNode } from './FileTreeNode';
 import { FileViewer } from './FileViewer';
+import {
+  getActiveProjectWorktree,
+  getProjectWorktree,
+  getSessionWorktree,
+  pathsMatch,
+} from '../../utils/projectContext';
+import { basenameSafe } from '../../utils/path';
 import type { FilesScreenProps } from '../../navigation/types';
 
 export function FilesScreen({ route, navigation }: FilesScreenProps) {
@@ -59,12 +70,29 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
   const activeSessionId = useConnectionStore((s) => s.activeSessionId);
   const activeProject = useConnectionStore((s) => s.activeProject);
   const setActiveSessionId = useConnectionStore((s) => s.setActiveSessionId);
+  const setGitHubProjectWorktree = useConnectionStore((s) => s.setGitHubProjectWorktree);
   const queryClient = useQueryClient();
+  const { projects: serverProjects } = useServerProjects();
+  const { sessions } = useSessions();
 
-  const rootPath =
-    activeProject?.kind === 'server'
-      ? activeProject.project.path
-      : null;
+  const [viewMode, setViewMode] = useState<'tree' | 'changed'>('tree');
+
+  const rootPath = useMemo(() => {
+    const direct = getActiveProjectWorktree(activeProject);
+    if (direct) return direct;
+    if (!activeProject || activeProject.kind !== 'github') return null;
+    const repoName = activeProject.repo.name.toLowerCase();
+    const matched = serverProjects.find((project) => {
+      const worktree = getProjectWorktree(project);
+      return worktree ? basenameSafe(worktree)?.toLowerCase() === repoName : false;
+    });
+    return matched ? getProjectWorktree(matched) : null;
+  }, [activeProject, serverProjects]);
+
+  useEffect(() => {
+    if (activeProject?.kind !== 'github') return;
+    setGitHubProjectWorktree(rootPath);
+  }, [activeProject, rootPath, setGitHubProjectWorktree]);
 
   // ── File selection ────────────────────────────────────────────────────────
   const routeFilePath = route.params?.filePath ?? null;
@@ -75,6 +103,14 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
     if (routeFilePath) setSelectedFile(routeFilePath);
   }, [routeFilePath]);
 
+  useEffect(() => {
+    setSelectedFile(null);
+  }, [rootPath]);
+
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: ['fileTree'] });
+  }, [rootPath, queryClient]);
+
   // ── Root file tree ────────────────────────────────────────────────────────
   const { entries, isLoading, isError, error, refresh } = useFileTree(
     rootPath ?? '',
@@ -83,6 +119,33 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
 
   // ── Ask AI handler ────────────────────────────────────────────────────────
   const [isCreatingSession, setIsCreatingSession] = useState(false);
+
+  const scopedSessions = useMemo(() => {
+    if (!rootPath) return sessions;
+    return sessions.filter((session) => pathsMatch(getSessionWorktree(session), rootPath));
+  }, [sessions, rootPath]);
+
+  const diffSession = useMemo(() => {
+    const active = scopedSessions.find((session) => session.id === activeSessionId);
+    return active ?? scopedSessions[0] ?? null;
+  }, [scopedSessions, activeSessionId]);
+
+  const { messages } = useMessages(diffSession?.id ?? null);
+
+  const latestUserMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === 'user') return messages[i].id;
+    }
+    return null;
+  }, [messages]);
+
+  const {
+    diffs,
+    isLoading: isLoadingDiffs,
+    isError: isDiffError,
+    error: diffError,
+    refresh: refreshDiff,
+  } = useSessionDiff(diffSession?.id ?? null, latestUserMessageId);
 
   const handleAskAI = useCallback(
     async (message: string, _filePath: string) => {
@@ -146,6 +209,20 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
         <Text style={styles.rootPath} numberOfLines={1}>
           {rootPath ?? 'No project open'}
         </Text>
+        <View style={styles.modeSwitch}>
+          <TouchableOpacity
+            style={[styles.modeBtn, viewMode === 'tree' && styles.modeBtnActive]}
+            onPress={() => setViewMode('tree')}
+          >
+            <Text style={[styles.modeBtnText, viewMode === 'tree' && styles.modeBtnTextActive]}>Tree</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeBtn, viewMode === 'changed' && styles.modeBtnActive]}
+            onPress={() => setViewMode('changed')}
+          >
+            <Text style={[styles.modeBtnText, viewMode === 'changed' && styles.modeBtnTextActive]}>Changed</Text>
+          </TouchableOpacity>
+        </View>
         {rootPath !== null && (
           <TouchableOpacity
             onPress={refresh}
@@ -170,6 +247,44 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
               : 'Select a project from the Projects tab to browse files here.'}
           </Text>
         </View>
+      ) : viewMode === 'changed' ? (
+        isLoadingDiffs ? (
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
+          </View>
+        ) : isDiffError ? (
+          <View style={styles.center}>
+            <Ionicons name="warning-outline" size={40} color={COLORS.error} />
+            <Text style={styles.errorText}>{diffError?.message ?? 'Could not load changed files.'}</Text>
+            <TouchableOpacity style={styles.retryBtn} onPress={refreshDiff}>
+              <Text style={styles.retryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : diffs.length === 0 ? (
+          <View style={styles.center}>
+            <Ionicons name="git-compare-outline" size={48} color={COLORS.textMuted} />
+            <Text style={styles.emptyTitle}>No changed files</Text>
+            <Text style={styles.emptyBody}>Run a change in this project and it will appear here.</Text>
+          </View>
+        ) : (
+          <ScrollView style={styles.tree} showsVerticalScrollIndicator={false}>
+            {diffs.map((diff) => (
+              <TouchableOpacity
+                key={diff.file}
+                style={styles.diffRow}
+                onPress={() => setSelectedFile(diff.file)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="document-text-outline" size={16} color={COLORS.textSecondary} />
+                <View style={styles.diffBody}>
+                  <Text style={styles.diffPath} numberOfLines={1}>{diff.file}</Text>
+                  <Text style={styles.diffMeta}>+{diff.additions}  -{diff.deletions}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+            <View style={styles.treePad} />
+          </ScrollView>
+        )
       ) : isLoading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={COLORS.primary} />
@@ -252,12 +367,59 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     padding: 4,
   },
+  modeSwitch: {
+    flexDirection: 'row',
+    gap: 4,
+    marginRight: SPACING.xs,
+  },
+  modeBtn: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: BORDER_RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+  },
+  modeBtnActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: `${COLORS.primary}20`,
+  },
+  modeBtnText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
+  modeBtnTextActive: {
+    color: COLORS.primary,
+  },
   // ── Tree ───────────────────────────────────────────────────────────────
   tree: {
     flex: 1,
   },
   treePad: {
     height: SPACING.xl,
+  },
+  diffRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderSubtle,
+  },
+  diffBody: {
+    flex: 1,
+    gap: 2,
+  },
+  diffPath: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.text,
+  },
+  diffMeta: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textMuted,
+    fontFamily: 'Courier',
   },
   // ── States ─────────────────────────────────────────────────────────────
   center: {

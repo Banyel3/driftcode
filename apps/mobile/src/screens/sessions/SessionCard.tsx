@@ -27,6 +27,7 @@ import {
   BORDER_RADIUS,
   MIN_TOUCH_TARGET,
 } from '../../constants';
+import { getSessionWorktree } from '../../utils/projectContext';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -73,7 +74,7 @@ export const SessionCard = memo(function SessionCard({
   onDelete,
 }: SessionCardProps) {
   const title = session.title?.trim() || 'Untitled session';
-  const path = shortPath(session.path);
+  const path = shortPath(getSessionWorktree(session));
 
   const handleDelete = () => {
     Alert.alert(

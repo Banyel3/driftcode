@@ -22,6 +22,7 @@ export type {
   ProviderInfo,
   Project,
   VCSInfo,
+  FileDiff,
   Command,
   ExecuteCommandRequest,
   OpenCodeEvent,
@@ -48,6 +49,7 @@ export {
   getSession,
   createSession,
   deleteSession,
+  getSessionDiff,
 } from './sessions';
 
 export { getMessages, sendMessage, sendMessageAsync } from './messages';

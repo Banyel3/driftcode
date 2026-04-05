@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,9 @@ import { useConnectionStore } from '../../store';
 import { messageKeys } from '../../hooks/useMessages';
 import { useBranches } from '../../hooks/useBranches';
 import { usePullRequests } from '../../hooks/usePullRequests';
+import { useServerProjects } from '../../hooks/useServerProjects';
+import { basenameSafe } from '../../utils/path';
+import { getProjectWorktree } from '../../utils/projectContext';
 import type { ProjectDetailScreenProps } from '../../navigation/types';
 
 export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
@@ -31,8 +34,11 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
   const serverUsername = useConnectionStore((s) => s.serverUsername);
   const serverPassword = useConnectionStore((s) => s.serverPassword);
   const setActiveSessionId = useConnectionStore((s) => s.setActiveSessionId);
+  const setGitHubProjectBranch = useConnectionStore((s) => s.setGitHubProjectBranch);
+  const setGitHubProjectWorktree = useConnectionStore((s) => s.setGitHubProjectWorktree);
   const queryClient = useQueryClient();
   const [isOpening, setIsOpening] = useState(false);
+  const { projects } = useServerProjects();
 
   const isGitHub = activeProject?.kind === 'github';
   const owner = isGitHub ? activeProject.repo.owner.login : null;
@@ -49,10 +55,15 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
     isError: isPullRequestError,
   } = usePullRequests(owner, repoName);
 
+  const selectedBranch =
+    activeProject?.kind === 'github'
+      ? activeProject.selectedBranch ?? activeProject.repo.defaultBranch
+      : null;
+
   const projectTitle = useMemo(() => {
     if (!activeProject) return 'Project';
     if (activeProject.kind === 'server') {
-      return activeProject.project.name?.trim() || activeProject.project.path;
+      return activeProject.project.name?.trim() || getProjectWorktree(activeProject.project) || 'Project';
     }
     return activeProject.repo.fullName;
   }, [activeProject]);
@@ -60,7 +71,7 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
   const projectMeta = useMemo(() => {
     if (!activeProject) return null;
     if (activeProject.kind === 'server') {
-      return activeProject.project.path;
+      return getProjectWorktree(activeProject.project);
     }
     return activeProject.repo.cloneUrl;
   }, [activeProject]);
@@ -77,7 +88,9 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
 
       const session =
         activeProject.kind === 'server'
-          ? await createSession(client, { path: activeProject.project.path })
+          ? await createSession(client, {
+            path: getProjectWorktree(activeProject.project) ?? undefined,
+          })
           : await createSession(client, {});
 
       setActiveSessionId(session.id);
@@ -85,7 +98,7 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
 
       const initialMessage =
         activeProject.kind === 'github'
-          ? `Please clone ${activeProject.repo.cloneUrl} into ~/projects/${activeProject.repo.name} (default branch: ${activeProject.repo.defaultBranch}) and then open that directory as the working project.`
+          ? `Please clone ${activeProject.repo.cloneUrl} into ~/projects/${activeProject.repo.name} using branch ${selectedBranch ?? activeProject.repo.defaultBranch} and then open that directory as the working project.`
           : undefined;
 
       navigation.navigate('Chat', {
@@ -99,6 +112,7 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
     }
   }, [
     activeProject,
+    selectedBranch,
     serverUrl,
     serverPassword,
     serverUsername,
@@ -106,6 +120,24 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
     queryClient,
     navigation,
   ]);
+
+  const handleSelectBranch = useCallback(
+    (branch: string) => {
+      setGitHubProjectBranch(branch);
+    },
+    [setGitHubProjectBranch],
+  );
+
+  useEffect(() => {
+    if (!activeProject || activeProject.kind !== 'github') return;
+    const repoName = activeProject.repo.name.toLowerCase();
+    const match = projects.find((project) => {
+      const worktree = getProjectWorktree(project);
+      const base = worktree ? basenameSafe(worktree)?.toLowerCase() : null;
+      return base === repoName;
+    });
+    setGitHubProjectWorktree(match ? getProjectWorktree(match) : null);
+  }, [activeProject, projects, setGitHubProjectWorktree]);
 
   const handleBrowseFiles = useCallback(() => {
     navigation.navigate('Files');
@@ -147,6 +179,11 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
                 {activeProject.kind === 'github' ? 'GitHub Repo' : 'Server Project'}
               </Text>
             </View>
+            {activeProject.kind === 'github' && selectedBranch ? (
+              <View style={styles.tag}>
+                <Text style={styles.tagText}>{selectedBranch}</Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
@@ -162,10 +199,18 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
                 <Text style={styles.sectionEmpty}>No branches found.</Text>
               ) : (
                 branches.slice(0, 10).map((branch) => (
-                  <View key={branch.name} style={styles.rowItem}>
+                  <TouchableOpacity
+                    key={branch.name}
+                    style={styles.rowItem}
+                    onPress={() => handleSelectBranch(branch.name)}
+                    activeOpacity={0.7}
+                  >
                     <Ionicons name="git-branch-outline" size={14} color={COLORS.textMuted} />
                     <Text style={styles.rowItemText} numberOfLines={1}>{branch.name}</Text>
-                  </View>
+                    {selectedBranch === branch.name ? (
+                      <Ionicons name="checkmark" size={14} color={COLORS.primary} />
+                    ) : null}
+                  </TouchableOpacity>
                 ))
               )}
             </View>

@@ -22,6 +22,7 @@ import {
   MIN_TOUCH_TARGET,
 } from '../../constants';
 import { basenameSafe, shortPathSafe } from '../../utils/path';
+import { getProjectWorktree } from '../../utils/projectContext';
 
 interface ProjectCardProps {
   project: Project;
@@ -31,7 +32,8 @@ interface ProjectCardProps {
 /** Extract the last segment of a path as a display name. */
 function projectDisplayName(project: Project): string {
   if (project.name?.trim()) return project.name.trim();
-  return basenameSafe(project.path) || (project.path ?? 'Unknown project');
+  const worktree = getProjectWorktree(project) ?? 'Unknown project';
+  return basenameSafe(worktree) || worktree;
 }
 
 /** Shorten the path for display. */
@@ -44,7 +46,7 @@ export const ProjectCard = memo(function ProjectCard({
   onOpen,
 }: ProjectCardProps) {
   const name = projectDisplayName(project);
-  const path = shortPath(project.path);
+  const path = shortPath(getProjectWorktree(project) ?? 'Unknown path');
 
   return (
     <View style={styles.card}>

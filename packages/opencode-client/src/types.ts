@@ -20,6 +20,8 @@ export interface Session {
   model?: string | null;
   /** Absolute path to the project directory on the server */
   path?: string | null;
+  /** Newer opencode servers use worktree instead of path */
+  worktree?: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -117,8 +119,19 @@ export interface ProviderInfo {
 // ---------------------------------------------------------------------------
 export interface Project {
   id: string;
-  path: string;
+  /** Canonical project root path on newer opencode servers */
+  worktree?: string;
+  /** Legacy project root path on older opencode servers */
+  path?: string;
   name?: string;
+}
+
+export interface FileDiff {
+  file: string;
+  before: string;
+  after: string;
+  additions: number;
+  deletions: number;
 }
 
 // ---------------------------------------------------------------------------

@@ -79,7 +79,12 @@ export function ProjectsScreen({ navigation }: ProjectListScreenProps) {
 
   const handleOpenRepo = useCallback(
     (repo: GitHubRepo) => {
-      setActiveProject({ kind: 'github', repo });
+      setActiveProject({
+        kind: 'github',
+        repo,
+        selectedBranch: repo.defaultBranch,
+        resolvedWorktree: null,
+      });
       navigation.navigate('ProjectDetail');
     },
     [setActiveProject, navigation],
