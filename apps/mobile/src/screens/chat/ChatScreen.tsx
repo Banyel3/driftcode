@@ -133,7 +133,12 @@ export function ChatScreen({ route }: ChatScreenProps) {
   const { send, isSending } = useSendMessage(sessionId);
 
   // ── Slash commands ───────────────────────────────────────────────────────
-  const commands = useCommands();
+  const {
+    commands,
+    isLoading: isLoadingCommands,
+    error: commandsError,
+    refetch: refetchCommands,
+  } = useCommands(sessionId);
   const [isRunningCommand, setIsRunningCommand] = useState(false);
 
   const isBusy = isSending || isRunningCommand;
@@ -197,14 +202,32 @@ export function ChatScreen({ route }: ChatScreenProps) {
   // ── Composer state ───────────────────────────────────────────────────────
   const [inputText, setInputText] = useState('');
   const listRef = useRef<FlatList<Message>>(null);
+  const hasInitialScrollRef = useRef(false);
+  const prevSessionIdRef = useRef<string | null>(sessionId);
 
-  // Auto-scroll to bottom whenever messages change.
+  // Reset initial-scroll flag when switching conversations.
   useEffect(() => {
-    if (messages.length > 0) {
-      // Small delay ensures the layout has settled.
+    if (prevSessionIdRef.current !== sessionId) {
+      prevSessionIdRef.current = sessionId;
+      hasInitialScrollRef.current = false;
+    }
+  }, [sessionId]);
+
+  // On first load of a conversation, jump to newest messages immediately.
+  useEffect(() => {
+    if (!isLoading && messages.length > 0 && !hasInitialScrollRef.current) {
+      hasInitialScrollRef.current = true;
+      // Small delay ensures layout is measured before initial jump.
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 100);
+    }
+  }, [isLoading, messages.length]);
+
+  // After initial positioning, keep following new messages.
+  useEffect(() => {
+    if (messages.length > 0 && hasInitialScrollRef.current) {
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
     }
-  }, [messages.length, isStreaming]);
+  }, [messages.length]);
 
   // ── Slash command suggestion logic ───────────────────────────────────────
   // Show suggestions whenever the input starts with "/" and has no space yet
@@ -216,8 +239,7 @@ export function ChatScreen({ route }: ChatScreenProps) {
   const showCommandSuggestions =
     sessionId !== null &&
     inputText.startsWith('/') &&
-    !inputText.includes(' ') &&
-    commands.length > 0;
+    !inputText.includes(' ');
 
   const filteredCommands = useMemo<Command[]>(() => {
     if (!showCommandSuggestions) return [];
@@ -225,6 +247,12 @@ export function ChatScreen({ route }: ChatScreenProps) {
     const q = commandQuery.toLowerCase();
     return commands.filter((cmd) => cmd.name.toLowerCase().startsWith(q));
   }, [showCommandSuggestions, commandQuery, commands]);
+
+  useEffect(() => {
+    if (showCommandSuggestions && sessionId) {
+      void refetchCommands();
+    }
+  }, [showCommandSuggestions, sessionId, refetchCommands]);
 
   const handleSelectCommand = useCallback((cmd: Command) => {
     // Fill the input with the command name + a trailing space so the user
@@ -361,28 +389,49 @@ export function ChatScreen({ route }: ChatScreenProps) {
         )}
 
         {/* Slash command suggestions — shown above the composer */}
-        {showCommandSuggestions && filteredCommands.length > 0 && (
+        {showCommandSuggestions && (
           <View style={styles.commandSuggestions}>
             <ScrollView
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
               style={styles.commandSuggestionsScroll}
             >
-              {filteredCommands.map((cmd, idx) => (
-                <TouchableOpacity
-                  key={`${cmd.type ?? 'unknown'}-${cmd.name}-${idx}`}
-                  style={styles.commandItem}
-                  onPress={() => { handleSelectCommand(cmd); }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.commandItemName}>/{cmd.name}</Text>
-                  {cmd.description ? (
-                    <Text style={styles.commandItemDesc} numberOfLines={1}>
-                      {cmd.description}
-                    </Text>
-                  ) : null}
-                </TouchableOpacity>
-              ))}
+              {isLoadingCommands ? (
+                <View style={styles.commandStateRow}>
+                  <ActivityIndicator size="small" color={COLORS.primary} />
+                  <Text style={styles.commandStateText}>Loading commands…</Text>
+                </View>
+              ) : commandsError ? (
+                <View style={styles.commandStateRow}>
+                  <Ionicons name="warning-outline" size={16} color={COLORS.warning} />
+                  <Text style={styles.commandStateText} numberOfLines={2}>
+                    Could not load commands. Try typing / again or enter command manually.
+                  </Text>
+                </View>
+              ) : filteredCommands.length === 0 ? (
+                <View style={styles.commandStateRow}>
+                  <Ionicons name="search-outline" size={16} color={COLORS.textSecondary} />
+                  <Text style={styles.commandStateText}>
+                    {commandQuery ? 'No matching commands.' : 'No commands available.'}
+                  </Text>
+                </View>
+              ) : (
+                filteredCommands.map((cmd, idx) => (
+                  <TouchableOpacity
+                    key={`${cmd.type ?? 'unknown'}-${cmd.name}-${idx}`}
+                    style={styles.commandItem}
+                    onPress={() => { handleSelectCommand(cmd); }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.commandItemName}>/{cmd.name}</Text>
+                    {cmd.description ? (
+                      <Text style={styles.commandItemDesc} numberOfLines={1}>
+                        {cmd.description}
+                      </Text>
+                    ) : null}
+                  </TouchableOpacity>
+                ))
+              )}
             </ScrollView>
           </View>
         )}
@@ -581,6 +630,19 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.xs,
     color: COLORS.textSecondary,
     marginTop: 2,
+  },
+  commandStateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+  },
+  commandStateText: {
+    flex: 1,
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
   },
   // ── Composer ─────────────────────────────────────────────────────────────
   composer: {
