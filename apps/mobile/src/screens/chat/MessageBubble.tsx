@@ -45,7 +45,7 @@ function renderPart(
     case 'tool-invocation':
       return (
         <ToolCallCard
-          key={`${messageId}-tool-${(part as ToolInvocationPart).toolInvocation.toolCallId}`}
+          key={`${messageId}-tool-${(part as ToolInvocationPart).toolInvocation.toolCallId}-${(part as ToolInvocationPart).toolInvocation.state}-${index}`}
           toolInvocation={part.toolInvocation}
         />
       );
