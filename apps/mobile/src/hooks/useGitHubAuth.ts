@@ -21,7 +21,25 @@ import { useConnectionStore } from '../store';
 // Public types
 // ---------------------------------------------------------------------------
 
-const GITHUB_TIMEOUT_MS = 10_000;
+const GITHUB_TIMEOUT_MS = 20_000;
+
+function getErrorStatus(err: unknown): number | null {
+  if (typeof err !== 'object' || err === null) return null;
+  const maybeStatus = (err as { status?: unknown }).status;
+  return typeof maybeStatus === 'number' ? maybeStatus : null;
+}
+
+function isAuthInvalidError(err: unknown): boolean {
+  const status = getErrorStatus(err);
+  if (status === 401 || status === 403) return true;
+
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    return msg.includes('bad credentials') || msg.includes('requires authentication');
+  }
+
+  return false;
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -75,15 +93,27 @@ export function useGitHubAuth(): UseGitHubAuthResult {
     if (githubToken && !user) {
       setIsLoading(true);
       withTimeout(fetchUser(githubToken), GITHUB_TIMEOUT_MS)
-        .then((ghUser) => { setUser(ghUser); })
-        .catch(() => {
-          // Stored token is no longer valid (or timed out) — wipe it so the UI shows disconnected
-          setGithubToken(null);
+        .then((ghUser) => {
+          setUser(ghUser);
+          setError(null);
+        })
+        .catch((err: unknown) => {
+          // Only wipe the persisted token for explicit auth failures.
+          // Network/timeout errors are transient and should not log the user out.
+          if (isAuthInvalidError(err)) {
+            setGithubToken(null);
+            setUser(null);
+            setError('Stored GitHub token is no longer valid. Please reconnect with a new PAT.');
+            return;
+          }
+
           setUser(null);
+          setError('Could not verify GitHub connection right now. Your saved PAT was kept.');
         })
         .finally(() => { setIsLoading(false); });
     } else if (!githubToken) {
       setUser(null);
+      setError(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [githubToken]);
@@ -109,7 +139,9 @@ export function useGitHubAuth(): UseGitHubAuthResult {
       const message =
         err instanceof Error && err.message.includes('timed out')
           ? err.message
-          : 'Could not authenticate with GitHub. Make sure the token is valid and has the repo and read:user scopes.';
+          : isAuthInvalidError(err)
+            ? 'GitHub rejected this token. Make sure it is a classic PAT with repo and read:user scopes.'
+            : 'Could not reach GitHub to verify this token. Check your internet and try again.';
       setError(message);
     } finally {
       setIsLoading(false);
