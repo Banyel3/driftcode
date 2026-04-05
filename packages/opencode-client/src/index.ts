@@ -22,6 +22,8 @@ export type {
   ProviderInfo,
   Project,
   VCSInfo,
+  Command,
+  ExecuteCommandRequest,
   OpenCodeEvent,
   SessionUpdatedEvent,
   SessionDeletedEvent,
@@ -59,3 +61,5 @@ export {
 } from './providers';
 
 export { listProjects, getCurrentProject, getVCSInfo } from './projects';
+
+export { listCommands, executeCommand } from './commands';

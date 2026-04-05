@@ -7,14 +7,18 @@
  *   - Streams assistant messages live via the SSE event stream.
  *   - Shows a typing indicator while the AI is generating.
  *   - Expanding TextInput composer with a send button.
+ *   - Slash command autocomplete: typing "/" shows all available server
+ *     commands; selecting one fills the input and routes execution through
+ *     POST /session/:id/command instead of prompt_async.
  *   - Header shows session title and a "New session" button.
  */
-import React, { useRef, useCallback, useState, useEffect } from 'react';
+import React, { useRef, useCallback, useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
+  ScrollView,
   TextInput,
   TouchableOpacity,
   KeyboardAvoidingView,
@@ -30,8 +34,9 @@ import {
   createOpenCodeClient,
   createSession,
   getSession,
+  executeCommand,
 } from '@driftcode/opencode-client';
-import type { Session, Message } from '@driftcode/opencode-client';
+import type { Session, Message, Command } from '@driftcode/opencode-client';
 
 import {
   COLORS,
@@ -43,6 +48,7 @@ import {
 import { useConnectionStore } from '../../store';
 import { useMessages, messageKeys } from '../../hooks/useMessages';
 import { useSendMessage } from '../../hooks/useSendMessage';
+import { useCommands } from '../../hooks/useCommands';
 import { MessageBubble, TypingIndicator } from './MessageBubble';
 import type { ChatScreenProps } from '../../navigation/types';
 
@@ -126,6 +132,47 @@ export function ChatScreen({ route }: ChatScreenProps) {
   const { messages, isLoading, isStreaming } = useMessages(sessionId);
   const { send, isSending } = useSendMessage(sessionId);
 
+  // ── Slash commands ───────────────────────────────────────────────────────
+  const commands = useCommands();
+  const [isRunningCommand, setIsRunningCommand] = useState(false);
+
+  const isBusy = isSending || isRunningCommand;
+
+  const runSlashCommand = useCallback(
+    async (commandName: string, commandArgs: string) => {
+      if (!client || !sessionId) return;
+      setIsRunningCommand(true);
+      try {
+        const message = await executeCommand(client, sessionId, {
+          command: commandName,
+          arguments: commandArgs,
+        });
+        // Push the returned message directly into the cache.
+        // Subsequent SSE updates will patch it in place if the server
+        // emits follow-up message.updated events.
+        queryClient.setQueryData<Message[]>(
+          messageKeys.session(sessionId),
+          (prev) => {
+            const list = prev ?? [];
+            const idx = list.findIndex((m) => m.id === message.id);
+            if (idx === -1) return [...list, message];
+            const next = [...list];
+            next[idx] = message;
+            return next;
+          },
+        );
+      } catch (err) {
+        Alert.alert(
+          'Command failed',
+          err instanceof Error ? err.message : String(err),
+        );
+      } finally {
+        setIsRunningCommand(false);
+      }
+    },
+    [client, sessionId, queryClient],
+  );
+
   // ── Auto-send initialMessage once session + send are ready ───────────────
   const initialMessageSentRef = useRef(false);
   useEffect(() => {
@@ -133,13 +180,13 @@ export function ChatScreen({ route }: ChatScreenProps) {
       initialMessage &&
       sessionId &&
       !isLoading &&
-      !isSending &&
+      !isBusy &&
       !initialMessageSentRef.current
     ) {
       initialMessageSentRef.current = true;
       send(initialMessage);
     }
-  }, [initialMessage, sessionId, isLoading, isSending, send]);
+  }, [initialMessage, sessionId, isLoading, isBusy, send]);
 
   // ── Composer state ───────────────────────────────────────────────────────
   const [inputText, setInputText] = useState('');
@@ -153,12 +200,48 @@ export function ChatScreen({ route }: ChatScreenProps) {
     }
   }, [messages.length, isStreaming]);
 
+  // ── Slash command suggestion logic ───────────────────────────────────────
+  // Show suggestions whenever the input starts with "/" and has no space yet
+  // (i.e. user hasn't started typing arguments after the command name).
+  const commandQuery = inputText.startsWith('/')
+    ? inputText.slice(1).split(' ')[0]
+    : '';
+
+  const showCommandSuggestions =
+    sessionId !== null &&
+    inputText.startsWith('/') &&
+    !inputText.includes(' ') &&
+    commands.length > 0;
+
+  const filteredCommands = useMemo<Command[]>(() => {
+    if (!showCommandSuggestions) return [];
+    if (commandQuery === '') return commands;
+    const q = commandQuery.toLowerCase();
+    return commands.filter((cmd) => cmd.name.toLowerCase().startsWith(q));
+  }, [showCommandSuggestions, commandQuery, commands]);
+
+  const handleSelectCommand = useCallback((cmd: Command) => {
+    // Fill the input with the command name + a trailing space so the user
+    // can immediately start typing arguments if needed.
+    setInputText(`/${cmd.name} `);
+  }, []);
+
+  // ── Send handler ─────────────────────────────────────────────────────────
   const handleSend = useCallback(() => {
     const text = inputText.trim();
-    if (!text || isSending || !sessionId) return;
+    if (!text || isBusy || !sessionId) return;
     setInputText('');
-    send(text);
-  }, [inputText, isSending, sessionId, send]);
+
+    if (text.startsWith('/')) {
+      // Route slash commands to POST /session/:id/command
+      const spaceIdx = text.indexOf(' ');
+      const name = spaceIdx === -1 ? text.slice(1) : text.slice(1, spaceIdx);
+      const args = spaceIdx === -1 ? '' : text.slice(spaceIdx + 1).trim();
+      void runSlashCommand(name, args);
+    } else {
+      send(text);
+    }
+  }, [inputText, isBusy, sessionId, send, runSlashCommand]);
 
   // ── Render helpers ───────────────────────────────────────────────────────
   const renderItem = useCallback(
@@ -168,7 +251,9 @@ export function ChatScreen({ route }: ChatScreenProps) {
 
   const keyExtractor = useCallback((item: Message) => item.id, []);
 
-  const ListFooter = isStreaming ? <TypingIndicator /> : null;
+  // Must be a function reference, never a pre-rendered element — VirtualizedList
+  // requires a component type or render fn for ListFooterComponent, not JSX.
+  const ListFooter = isStreaming ? TypingIndicator : null;
 
   // ── No session state ─────────────────────────────────────────────────────
   if (!sessionId) {
@@ -231,7 +316,7 @@ export function ChatScreen({ route }: ChatScreenProps) {
             ListEmptyComponent={
               <View style={styles.emptyList}>
                 <Text style={styles.emptyListText}>
-                  Send a message to start coding with AI.
+                  Send a message or type / to run a command.
                 </Text>
               </View>
             }
@@ -241,13 +326,40 @@ export function ChatScreen({ route }: ChatScreenProps) {
           />
         )}
 
+        {/* Slash command suggestions — shown above the composer */}
+        {showCommandSuggestions && filteredCommands.length > 0 && (
+          <View style={styles.commandSuggestions}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              style={styles.commandSuggestionsScroll}
+            >
+              {filteredCommands.map((cmd) => (
+                <TouchableOpacity
+                  key={cmd.name}
+                  style={styles.commandItem}
+                  onPress={() => { handleSelectCommand(cmd); }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.commandItemName}>/{cmd.name}</Text>
+                  {cmd.description ? (
+                    <Text style={styles.commandItemDesc} numberOfLines={1}>
+                      {cmd.description}
+                    </Text>
+                  ) : null}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
         {/* Composer */}
         <View style={styles.composer}>
           <TextInput
             style={styles.input}
             value={inputText}
             onChangeText={setInputText}
-            placeholder="Ask anything…"
+            placeholder="Ask anything or type / for commands…"
             placeholderTextColor={COLORS.textMuted}
             multiline
             maxLength={32_000}
@@ -257,12 +369,12 @@ export function ChatScreen({ route }: ChatScreenProps) {
           <TouchableOpacity
             style={[
               styles.sendBtn,
-              (!inputText.trim() || isSending) && styles.sendBtnDisabled,
+              (!inputText.trim() || isBusy) && styles.sendBtnDisabled,
             ]}
             onPress={handleSend}
-            disabled={!inputText.trim() || isSending}
+            disabled={!inputText.trim() || isBusy}
           >
-            {isSending ? (
+            {isBusy ? (
               <ActivityIndicator size="small" color={COLORS.white} />
             ) : (
               <Ionicons name="arrow-up" size={18} color={COLORS.white} />
@@ -408,6 +520,33 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.sm,
     color: COLORS.textMuted,
     textAlign: 'center',
+  },
+  // ── Slash command suggestions ─────────────────────────────────────────────
+  commandSuggestions: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+    maxHeight: 220,
+  },
+  commandSuggestionsScroll: {
+    flexGrow: 0,
+  },
+  commandItem: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 2,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderSubtle,
+  },
+  commandItemName: {
+    fontSize: FONT_SIZE.sm,
+    fontWeight: '600',
+    color: COLORS.primary,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  commandItemDesc: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    marginTop: 2,
   },
   // ── Composer ─────────────────────────────────────────────────────────────
   composer: {

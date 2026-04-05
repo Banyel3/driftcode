@@ -14,7 +14,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef } from 'react';
 import { getMessages, createOpenCodeClient } from '@driftcode/opencode-client';
-import type { Message, MessagePart, OpenCodeEvent } from '@driftcode/opencode-client';
+import type { Message, MessagePart, ToolInvocationPart, TextPart, OpenCodeEvent } from '@driftcode/opencode-client';
 import { useConnectionStore } from '../store';
 import { useSSEStream } from './useSSEStream';
 
@@ -79,9 +79,15 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
           messageKeys.session(evtSession),
           (prev) => {
             const list = prev ?? [];
-            const idx = list.findIndex((m) => m.id === message.id);
-            if (idx === -1) return [...list, message];
-            const next = [...list];
+            // When the real user message arrives via SSE, strip any optimistic
+            // placeholder we added in useSendMessage — prevents duplicate display.
+            const base =
+              message.role === 'user'
+                ? list.filter((m) => !m.id.startsWith('optimistic-'))
+                : list;
+            const idx = base.findIndex((m) => m.id === message.id);
+            if (idx === -1) return [...base, message];
+            const next = [...base];
             next[idx] = message;
             return next;
           },
@@ -109,13 +115,30 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
   // ── 3. Derive isStreaming ──────────────────────────────────────────────────
   const messages = data ?? [];
   const lastMsg = messages.at(-1);
-  const isStreaming =
-    lastMsg?.role === 'assistant' &&
-    lastMsg.parts.every(
+
+  // isStreaming is true while the last assistant message is still being built:
+  //   a) it has no text part with any content yet (tokens haven't arrived), OR
+  //   b) it has a tool-invocation that hasn't received a result yet.
+  // Using both conditions prevents premature dismissal of the typing indicator
+  // during pure-tool-call steps and fixes the "trivially true" case where
+  // every() passes vacuously when there are no text parts at all.
+  const hasPartialToolCall =
+    lastMsg?.parts.some(
+      (p: MessagePart) =>
+        p.type === 'tool-invocation' &&
+        (p as ToolInvocationPart).toolInvocation.state !== 'result',
+    ) ?? false;
+
+  const hasNoText =
+    (lastMsg?.parts.every(
       (p: MessagePart) =>
         p.type !== 'text' ||
-        (p.type === 'text' && (p as { text: string }).text === ''),
-    );
+        (p.type === 'text' && (p as TextPart).text === ''),
+    ) ??
+      true) && (lastMsg?.parts.length ?? 0) > 0;
+
+  const isStreaming =
+    lastMsg?.role === 'assistant' && (hasNoText || hasPartialToolCall);
 
   return {
     messages,

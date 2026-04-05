@@ -6,7 +6,7 @@
  */
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import type { Message, MessagePart } from '@driftcode/opencode-client';
+import type { Message, MessagePart, ToolInvocationPart } from '@driftcode/opencode-client';
 import {
   COLORS,
   FONT_SIZE,
@@ -24,13 +24,18 @@ interface MessageBubbleProps {
 // ---------------------------------------------------------------------------
 // Part renderer
 // ---------------------------------------------------------------------------
-function renderPart(part: MessagePart, index: number, isUser: boolean): React.ReactNode {
+function renderPart(
+  part: MessagePart,
+  index: number,
+  isUser: boolean,
+  messageId: string,
+): React.ReactNode {
   switch (part.type) {
     case 'text':
       if (!part.text) return null;
       return (
         <MarkdownText
-          key={index}
+          key={`${messageId}-text-${index}`}
           color={isUser ? COLORS.white : COLORS.text}
         >
           {part.text}
@@ -40,24 +45,29 @@ function renderPart(part: MessagePart, index: number, isUser: boolean): React.Re
     case 'tool-invocation':
       return (
         <ToolCallCard
-          key={index}
+          key={`${messageId}-tool-${(part as ToolInvocationPart).toolInvocation.toolCallId}`}
           toolInvocation={part.toolInvocation}
         />
       );
 
     case 'reasoning':
-      return <ReasoningBlock key={index} reasoning={part.reasoning} />;
+      return (
+        <ReasoningBlock
+          key={`${messageId}-reasoning-${index}`}
+          reasoning={part.reasoning}
+        />
+      );
 
     case 'step-start':
       return (
-        <View key={index} style={styles.stepSeparator}>
+        <View key={`${messageId}-step-${index}`} style={styles.stepSeparator}>
           <View style={styles.stepLine} />
         </View>
       );
 
     case 'file':
       return (
-        <View key={index} style={styles.filePart}>
+        <View key={`${messageId}-file-${index}`} style={styles.filePart}>
           <Text style={styles.fileLabel}>
             Attached file ({part.mimeType})
           </Text>
@@ -90,7 +100,7 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
           isUser ? styles.userBubble : styles.assistantBubble,
         ]}
       >
-        {message.parts.map((part, idx) => renderPart(part, idx, isUser))}
+        {message.parts.map((part, idx) => renderPart(part, idx, isUser, message.id))}
       </View>
     </View>
   );

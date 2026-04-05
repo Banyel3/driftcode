@@ -180,6 +180,30 @@ export type OpenCodeEvent =
   | ReloadEvent;
 
 // ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
+/** A slash command available on the connected opencode server. */
+export interface Command {
+  /** Command name without the leading slash, e.g. "init", "undo", "help" */
+  name: string;
+  /** Human-readable description shown in the autocomplete list */
+  description?: string;
+  /** Whether this is a built-in command or user-defined */
+  type?: 'builtin' | 'user';
+}
+
+export interface ExecuteCommandRequest {
+  /** Command name without the leading slash */
+  command: string;
+  /** Everything typed after the command name */
+  arguments: string;
+  messageID?: string;
+  agent?: string;
+  model?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
 export interface APIErrorBody {
