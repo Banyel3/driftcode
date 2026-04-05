@@ -60,14 +60,16 @@ function langColor(language: string | null): string {
 interface RepoCardProps {
   repo: GitHubRepo;
   onOpen: (repo: GitHubRepo) => void;
+  isActive?: boolean;
 }
 
 export const RepoCard = memo(function RepoCard({
   repo,
   onOpen,
+  isActive = false,
 }: RepoCardProps) {
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, isActive && styles.cardActive]}>
       {/* Top row */}
       <View style={styles.topRow}>
         <Ionicons
@@ -91,7 +93,8 @@ export const RepoCard = memo(function RepoCard({
           onPress={() => onOpen(repo)}
           hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
         >
-          <Text style={styles.openBtnText}>Open</Text>
+          {isActive && <Ionicons name="checkmark-circle" size={12} color={COLORS.success} />}
+          <Text style={styles.openBtnText}>{isActive ? 'Active' : 'Open'}</Text>
           <Ionicons name="arrow-forward" size={12} color={COLORS.primary} />
         </TouchableOpacity>
       </View>
@@ -163,6 +166,9 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.borderSubtle,
     minHeight: MIN_TOUCH_TARGET,
     gap: 4,
+  },
+  cardActive: {
+    backgroundColor: `${COLORS.success}14`,
   },
   topRow: {
     flexDirection: 'row',

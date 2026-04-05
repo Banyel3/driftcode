@@ -27,6 +27,7 @@ import { getProjectWorktree } from '../../utils/projectContext';
 interface ProjectCardProps {
   project: Project;
   onOpen: (project: Project) => void;
+  isActive?: boolean;
 }
 
 /** Extract the last segment of a path as a display name. */
@@ -44,12 +45,13 @@ function shortPath(path: string): string {
 export const ProjectCard = memo(function ProjectCard({
   project,
   onOpen,
+  isActive = false,
 }: ProjectCardProps) {
   const name = projectDisplayName(project);
   const path = shortPath(getProjectWorktree(project) ?? 'Unknown path');
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, isActive && styles.cardActive]}>
       {/* Icon + text */}
       <View style={styles.iconWrap}>
         <Ionicons name="folder-open-outline" size={22} color={COLORS.warning} />
@@ -70,8 +72,9 @@ export const ProjectCard = memo(function ProjectCard({
         onPress={() => onOpen(project)}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
+        {isActive && <Ionicons name="checkmark-circle" size={14} color={COLORS.success} />}
         <Ionicons name="play-outline" size={14} color={COLORS.primary} />
-        <Text style={styles.openBtnText}>Open</Text>
+        <Text style={styles.openBtnText}>{isActive ? 'Active' : 'Open'}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -87,6 +90,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.borderSubtle,
     minHeight: MIN_TOUCH_TARGET,
+  },
+  cardActive: {
+    backgroundColor: `${COLORS.success}14`,
   },
   iconWrap: {
     width: 36,

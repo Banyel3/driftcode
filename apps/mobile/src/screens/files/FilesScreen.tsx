@@ -306,7 +306,7 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
             size={48}
             color={COLORS.textMuted}
           />
-          <Text style={styles.emptyTitle}>Empty directory</Text>
+          <Text style={styles.emptyTitle}>Empty Directory</Text>
           <Text style={styles.emptyBody}>{rootPath}</Text>
         </View>
       ) : (

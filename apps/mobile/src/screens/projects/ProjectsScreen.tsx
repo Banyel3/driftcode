@@ -48,6 +48,7 @@ import { useServerProjects } from '../../hooks/useServerProjects';
 import { useGitHubRepos } from '../../hooks/useGitHubRepos';
 import { ProjectCard } from './ProjectCard';
 import { RepoCard } from './RepoCard';
+import { getProjectWorktree } from '../../utils/projectContext';
 import type { ProjectListScreenProps } from '../../navigation/types';
 
 // ---------------------------------------------------------------------------
@@ -56,6 +57,7 @@ import type { ProjectListScreenProps } from '../../navigation/types';
 export function ProjectsScreen({ navigation }: ProjectListScreenProps) {
   const githubToken = useConnectionStore((s) => s.githubToken);
   const setActiveProject = useConnectionStore((s) => s.setActiveProject);
+  const activeProject = useConnectionStore((s) => s.activeProject);
 
   const [searchQuery, setSearchQuery] = useState('');
   const searchRef = useRef<TextInput>(null);
@@ -94,16 +96,27 @@ export function ProjectsScreen({ navigation }: ProjectListScreenProps) {
 
   const renderRepo = useCallback(
     ({ item }: { item: GitHubRepo }) => (
-      <RepoCard repo={item} onOpen={handleOpenRepo} />
+      <RepoCard
+        repo={item}
+        onOpen={handleOpenRepo}
+        isActive={activeProject?.kind === 'github' && activeProject.repo.id === item.id}
+      />
     ),
-    [handleOpenRepo],
+    [handleOpenRepo, activeProject],
   );
 
   const renderProject = useCallback(
     ({ item }: { item: Project }) => (
-      <ProjectCard project={item} onOpen={handleOpenProject} />
+      <ProjectCard
+        project={item}
+        onOpen={handleOpenProject}
+        isActive={
+          activeProject?.kind === 'server' &&
+          getProjectWorktree(activeProject.project) === getProjectWorktree(item)
+        }
+      />
     ),
-    [handleOpenProject],
+    [handleOpenProject, activeProject],
   );
 
   const repoKeyExtractor = useCallback((item: GitHubRepo) => String(item.id), []);
