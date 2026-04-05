@@ -1,6 +1,8 @@
 import type { OpenCodeClient } from './client';
 import type { Message, SendMessageRequest } from './types';
 
+const PROMPT_ASYNC_TIMEOUT_MS = 30_000;
+
 /**
  * GET /session/:id/message
  * Returns the full message history for a session.
@@ -35,5 +37,9 @@ export async function sendMessageAsync(
   sessionId: string,
   request: SendMessageRequest,
 ): Promise<void> {
-  return client.post<void>(`/session/${sessionId}/prompt_async`, request);
+  return client.post<void>(
+    `/session/${sessionId}/prompt_async`,
+    request,
+    PROMPT_ASYNC_TIMEOUT_MS,
+  );
 }

@@ -18,6 +18,8 @@ export interface SSEStreamOptions {
   onEvent: (event: OpenCodeEvent) => void;
   /** Called when the connection drops or an unrecoverable error occurs. */
   onError?: (err: Error) => void;
+  /** Called when a reconnect attempt successfully re-establishes stream. */
+  onReconnect?: () => void;
   /** Whether to actively hold the connection open. */
   enabled: boolean;
 }
@@ -26,7 +28,7 @@ export interface SSEStreamOptions {
  * Maintains a persistent SSE connection to the opencode server for as long as
  * `enabled` is true.  Reconnects with exponential back-off on failure.
  */
-export function useSSEStream({ onEvent, onError, enabled }: SSEStreamOptions): void {
+export function useSSEStream({ onEvent, onError, onReconnect, enabled }: SSEStreamOptions): void {
   const serverUrl = useConnectionStore((s) => s.serverUrl);
   const serverUsername = useConnectionStore((s) => s.serverUsername);
   const serverPassword = useConnectionStore((s) => s.serverPassword);
@@ -34,13 +36,16 @@ export function useSSEStream({ onEvent, onError, enabled }: SSEStreamOptions): v
   // Stable refs so the reconnect loop doesn't need to close over stale values.
   const onEventRef = useRef(onEvent);
   const onErrorRef = useRef(onError);
+  const onReconnectRef = useRef(onReconnect);
   onEventRef.current = onEvent;
   onErrorRef.current = onError;
+  onReconnectRef.current = onReconnect;
 
   // AbortController for the active fetch — we replace it on each attempt.
   const abortRef = useRef<AbortController | null>(null);
   const retryDelayRef = useRef(1000);
   const isMountedRef = useRef(true);
+  const hasConnectedOnceRef = useRef(false);
 
   const connect = useCallback(async () => {
     if (!serverUrl || !serverPassword) return;
@@ -71,6 +76,11 @@ export function useSSEStream({ onEvent, onError, enabled }: SSEStreamOptions): v
       if (!response.ok) {
         throw new Error(`SSE connection failed: HTTP ${response.status}`);
       }
+
+      if (hasConnectedOnceRef.current) {
+        onReconnectRef.current?.();
+      }
+      hasConnectedOnceRef.current = true;
 
       // Reset back-off on successful connect.
       retryDelayRef.current = 1000;

@@ -18,6 +18,15 @@ import type { Message, MessagePart, ToolInvocationPart, TextPart, OpenCodeEvent 
 import { useConnectionStore } from '../store';
 import { useSSEStream } from './useSSEStream';
 
+function normalizeMessages(messages: Message[]): Message[] {
+  if (messages.length <= 1) return messages;
+  const deduped = new Map<string, Message>();
+  for (const msg of messages) {
+    deduped.set(msg.id, msg);
+  }
+  return Array.from(deduped.values()).sort((a, b) => a.createdAt - b.createdAt);
+}
+
 // ---------------------------------------------------------------------------
 // Query key factory
 // ---------------------------------------------------------------------------
@@ -58,7 +67,7 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
         password: serverPassword,
       });
       const raw = await getMessages(client, sessionId);
-      return Array.isArray(raw) ? raw : [];
+      return normalizeMessages(Array.isArray(raw) ? raw : []);
     },
     // Don't auto-refetch on window focus — SSE keeps us up-to-date.
     refetchOnWindowFocus: false,
@@ -86,10 +95,10 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
                 ? list.filter((m) => !m.id.startsWith('optimistic-'))
                 : list;
             const idx = base.findIndex((m) => m.id === message.id);
-            if (idx === -1) return [...base, message];
+            if (idx === -1) return normalizeMessages([...base, message]);
             const next = [...base];
             next[idx] = message;
-            return next;
+            return normalizeMessages(next);
           },
         );
       }
@@ -100,7 +109,7 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
 
         queryClient.setQueryData<Message[]>(
           messageKeys.session(evtSession),
-          (prev) => (prev ?? []).filter((m) => m.id !== messageId),
+          (prev) => normalizeMessages((prev ?? []).filter((m) => m.id !== messageId)),
         );
       }
     },
@@ -110,6 +119,12 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
   useSSEStream({
     enabled: sessionId !== null,
     onEvent: handleEvent,
+    onReconnect: () => {
+      if (!sessionIdRef.current) return;
+      void queryClient.invalidateQueries({
+        queryKey: messageKeys.session(sessionIdRef.current),
+      });
+    },
   });
 
   // ── 3. Derive isStreaming ──────────────────────────────────────────────────

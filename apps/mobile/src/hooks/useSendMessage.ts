@@ -15,10 +15,13 @@ import { useRef } from 'react';
 import {
   sendMessageAsync,
   createOpenCodeClient,
+  OpenCodeAPIError,
 } from '@driftcode/opencode-client';
 import type { Message } from '@driftcode/opencode-client';
 import { useConnectionStore } from '../store';
 import { messageKeys } from './useMessages';
+
+const SEND_RECONCILE_DELAY_MS = 2_000;
 
 export interface UseSendMessageResult {
   /** Send a text message.  Returns a promise that resolves once the fire-and-forget
@@ -73,13 +76,37 @@ export function useSendMessage(
       });
     },
     onError: (_err, _text) => {
-      // Roll back optimistic message on failure.
+      const err = _err;
+
+      // Auth/validation failures are definitive; rollback immediately.
+      if (err instanceof OpenCodeAPIError && err.status >= 400 && err.status < 500) {
+        if (sessionId) {
+          queryClient.setQueryData<Message[]>(
+            messageKeys.session(sessionId),
+            (prev) =>
+              (prev ?? []).filter((m) => !m.id.startsWith('optimistic-')),
+          );
+        }
+        return;
+      }
+
+      // For timeout/network failures we may not know whether the server accepted
+      // the prompt. Delay cleanup briefly and refetch to reconcile with source
+      // of truth before removing optimistic placeholders.
+      if (!sessionId) return;
+      setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: messageKeys.session(sessionId) });
+      }, SEND_RECONCILE_DELAY_MS);
+
+      // Roll back optimistic placeholders after reconciliation window.
       if (sessionId) {
-        queryClient.setQueryData<Message[]>(
-          messageKeys.session(sessionId),
-          (prev) =>
-            (prev ?? []).filter((m) => !m.id.startsWith('optimistic-')),
-        );
+        setTimeout(() => {
+          queryClient.setQueryData<Message[]>(
+            messageKeys.session(sessionId),
+            (prev) =>
+              (prev ?? []).filter((m) => !m.id.startsWith('optimistic-')),
+          );
+        }, SEND_RECONCILE_DELAY_MS + 2_000);
       }
     },
   });

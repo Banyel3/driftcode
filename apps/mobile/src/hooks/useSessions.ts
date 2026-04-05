@@ -107,6 +107,9 @@ export function useSessions(): UseSessionsResult {
   useSSEStream({
     enabled: serverUrl !== null && serverPassword !== null,
     onEvent: handleEvent,
+    onReconnect: () => {
+      void queryClient.invalidateQueries({ queryKey: sessionKeys.all });
+    },
   });
 
   // ── 3. Delete mutation ────────────────────────────────────────────────────

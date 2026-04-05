@@ -154,11 +154,17 @@ export function ChatScreen({ route }: ChatScreenProps) {
           messageKeys.session(sessionId),
           (prev) => {
             const list = prev ?? [];
-            const idx = list.findIndex((m) => m.id === message.id);
-            if (idx === -1) return [...list, message];
+            const deduped = new Map<string, Message>();
+            for (const item of list) deduped.set(item.id, item);
+            deduped.set(message.id, message);
+            const merged = Array.from(deduped.values()).sort(
+              (a, b) => a.createdAt - b.createdAt,
+            );
+            const idx = merged.findIndex((m) => m.id === message.id);
+            if (idx === -1) return merged;
             const next = [...list];
             next[idx] = message;
-            return next;
+            return merged;
           },
         );
       } catch (err) {
@@ -249,6 +255,25 @@ export function ChatScreen({ route }: ChatScreenProps) {
     [],
   );
 
+  const duplicateMessageIds = useMemo(() => {
+    const seen = new Set<string>();
+    const duplicates: string[] = [];
+    for (const msg of messages) {
+      if (seen.has(msg.id)) duplicates.push(msg.id);
+      else seen.add(msg.id);
+    }
+    return duplicates;
+  }, [messages]);
+
+  useEffect(() => {
+    if (__DEV__ && duplicateMessageIds.length > 0) {
+      console.warn(
+        '[ChatScreen] Duplicate message IDs detected in FlatList data:',
+        duplicateMessageIds,
+      );
+    }
+  }, [duplicateMessageIds]);
+
   const keyExtractor = useCallback((item: Message) => item.id, []);
 
   // Must be a function reference, never a pre-rendered element — VirtualizedList
@@ -334,9 +359,9 @@ export function ChatScreen({ route }: ChatScreenProps) {
               showsVerticalScrollIndicator={false}
               style={styles.commandSuggestionsScroll}
             >
-              {filteredCommands.map((cmd) => (
+              {filteredCommands.map((cmd, idx) => (
                 <TouchableOpacity
-                  key={cmd.name}
+                  key={`${cmd.type ?? 'unknown'}-${cmd.name}-${idx}`}
                   style={styles.commandItem}
                   onPress={() => { handleSelectCommand(cmd); }}
                   activeOpacity={0.7}
