@@ -1,5 +1,12 @@
 import type { GitHubClient } from './client';
-import type { GitHubRepo, GitHubRepoOwner, GitHubUser, ListReposOptions } from './types';
+import type {
+  GitHubRepo,
+  GitHubRepoOwner,
+  GitHubUser,
+  ListReposOptions,
+  GitHubBranch,
+  GitHubPullRequest,
+} from './types';
 
 // ---------------------------------------------------------------------------
 // Mapping helpers — raw GitHub REST API → camelCase domain types
@@ -30,6 +37,34 @@ interface RawRepo {
   topics?: string[];
 }
 
+interface RawBranch {
+  name: string;
+  protected: boolean;
+  commit: {
+    sha: string;
+  };
+}
+
+interface RawPullRequest {
+  id: number;
+  number: number;
+  title: string;
+  state: 'open' | 'closed';
+  html_url: string;
+  created_at: string;
+  updated_at: string;
+  user: {
+    login: string;
+    avatar_url: string;
+  };
+  head: {
+    ref: string;
+  };
+  base: {
+    ref: string;
+  };
+}
+
 function mapOwner(raw: RawRepoOwner): GitHubRepoOwner {
   return {
     login: raw.login,
@@ -58,6 +93,32 @@ function mapRepo(raw: RawRepo): GitHubRepo {
     pushedAt: raw.pushed_at,
     language: raw.language,
     topics: raw.topics ?? [],
+  };
+}
+
+function mapBranch(raw: RawBranch): GitHubBranch {
+  return {
+    name: raw.name,
+    protected: raw.protected,
+    commitSha: raw.commit.sha,
+  };
+}
+
+function mapPullRequest(raw: RawPullRequest): GitHubPullRequest {
+  return {
+    id: raw.id,
+    number: raw.number,
+    title: raw.title,
+    state: raw.state,
+    htmlUrl: raw.html_url,
+    createdAt: raw.created_at,
+    updatedAt: raw.updated_at,
+    user: {
+      login: raw.user.login,
+      avatarUrl: raw.user.avatar_url,
+    },
+    headRefName: raw.head.ref,
+    baseRefName: raw.base.ref,
   };
 }
 
@@ -139,4 +200,41 @@ export async function getAuthenticatedUser(
     bio: data.bio ?? null,
     publicRepos: data.public_repos,
   };
+}
+
+/**
+ * GET /repos/{owner}/{repo}/branches — lists branches.
+ */
+export async function listBranches(
+  client: GitHubClient,
+  owner: string,
+  repo: string,
+): Promise<GitHubBranch[]> {
+  const { data } = await client.getOctokit().rest.repos.listBranches({
+    owner,
+    repo,
+    per_page: 100,
+    page: 1,
+  });
+
+  return (data as RawBranch[]).map(mapBranch);
+}
+
+/**
+ * GET /repos/{owner}/{repo}/pulls?state=open — lists open pull requests.
+ */
+export async function listPullRequests(
+  client: GitHubClient,
+  owner: string,
+  repo: string,
+): Promise<GitHubPullRequest[]> {
+  const { data } = await client.getOctokit().rest.pulls.list({
+    owner,
+    repo,
+    state: 'open',
+    per_page: 50,
+    page: 1,
+  });
+
+  return (data as RawPullRequest[]).map(mapPullRequest);
 }

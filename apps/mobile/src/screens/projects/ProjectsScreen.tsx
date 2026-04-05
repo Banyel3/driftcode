@@ -14,7 +14,8 @@
  *    - "Open" → creates a session with the project's path as working dir
  *    - Upsell banner to connect GitHub
  *
- * In both modes the user lands in the Chat tab after tapping "Open".
+ * In both modes tapping a project sets active app context and opens
+ * ProjectDetail inside the Projects stack.
  */
 import React, { useState, useCallback, useRef } from 'react';
 import {
@@ -32,12 +33,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useQueryClient } from '@tanstack/react-query';
-
-import {
-  createOpenCodeClient,
-  createSession,
-} from '@driftcode/opencode-client';
 import type { Project } from '@driftcode/opencode-client';
 import type { GitHubRepo } from '@driftcode/github-client';
 
@@ -51,24 +46,18 @@ import {
 import { useConnectionStore } from '../../store';
 import { useServerProjects } from '../../hooks/useServerProjects';
 import { useGitHubRepos } from '../../hooks/useGitHubRepos';
-import { messageKeys } from '../../hooks/useMessages';
 import { ProjectCard } from './ProjectCard';
 import { RepoCard } from './RepoCard';
-import type { ProjectsScreenProps } from '../../navigation/types';
+import type { ProjectListScreenProps } from '../../navigation/types';
 
 // ---------------------------------------------------------------------------
 // Screen
 // ---------------------------------------------------------------------------
-export function ProjectsScreen({ navigation }: ProjectsScreenProps) {
+export function ProjectsScreen({ navigation }: ProjectListScreenProps) {
   const githubToken = useConnectionStore((s) => s.githubToken);
-  const serverUrl = useConnectionStore((s) => s.serverUrl);
-  const serverUsername = useConnectionStore((s) => s.serverUsername);
-  const serverPassword = useConnectionStore((s) => s.serverPassword);
-  const setActiveSessionId = useConnectionStore((s) => s.setActiveSessionId);
-  const queryClient = useQueryClient();
+  const setActiveProject = useConnectionStore((s) => s.setActiveProject);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [isOpening, setIsOpening] = useState(false);
   const searchRef = useRef<TextInput>(null);
 
   const hasGitHub = githubToken !== null;
@@ -80,62 +69,20 @@ export function ProjectsScreen({ navigation }: ProjectsScreenProps) {
   const { repos, isLoading: ghLoading, isError: ghError, refresh: ghRefresh, isRefreshing: ghRefreshing } = githubData;
   const { projects, isLoading: svLoading, isError: svError, refresh: svRefresh, isRefreshing: svRefreshing } = serverData;
 
-  // ── Open helpers ─────────────────────────────────────────────────────────
-
-  /** Create a session (optionally with a path) and navigate to Chat. */
-  const openSession = useCallback(
-    async (opts: { path?: string; cloneMessage?: string }) => {
-      if (!serverUrl || !serverPassword) return;
-      setIsOpening(true);
-      try {
-        const client = createOpenCodeClient({
-          serverUrl,
-          username: serverUsername,
-          password: serverPassword,
-        });
-        const session = await createSession(client, opts.path ? { path: opts.path } : {});
-        setActiveSessionId(session.id);
-        queryClient.removeQueries({ queryKey: messageKeys.session(session.id) });
-
-        // Navigate to Chat; if a clone message was provided it will be sent
-        // automatically via the route param.
-        if (opts.cloneMessage) {
-          navigation.navigate('Chat', {
-            sessionId: session.id,
-            initialMessage: opts.cloneMessage,
-          });
-        } else {
-          navigation.navigate('Chat', { sessionId: session.id });
-        }
-      } catch (err) {
-        Alert.alert(
-          'Could not open session',
-          err instanceof Error ? err.message : String(err),
-        );
-      } finally {
-        setIsOpening(false);
-      }
-    },
-    [serverUrl, serverPassword, serverUsername, setActiveSessionId, queryClient, navigation],
-  );
-
   const handleOpenProject = useCallback(
     (project: Project) => {
-      void openSession({ path: project.path });
+      setActiveProject({ kind: 'server', project });
+      navigation.navigate('ProjectDetail');
     },
-    [openSession],
+    [setActiveProject, navigation],
   );
 
   const handleOpenRepo = useCallback(
     (repo: GitHubRepo) => {
-      // Build a natural-language clone + open instruction for the agent.
-      const cloneDir = `~/projects/${repo.name}`;
-      const message =
-        `Please clone ${repo.cloneUrl} into ${cloneDir} ` +
-        `(default branch: ${repo.defaultBranch}) and then open that directory as the working project.`;
-      void openSession({ cloneMessage: message });
+      setActiveProject({ kind: 'github', repo });
+      navigation.navigate('ProjectDetail');
     },
-    [openSession],
+    [setActiveProject, navigation],
   );
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -156,18 +103,6 @@ export function ProjectsScreen({ navigation }: ProjectsScreenProps) {
 
   const repoKeyExtractor = useCallback((item: GitHubRepo) => String(item.id), []);
   const projectKeyExtractor = useCallback((item: Project) => item.id, []);
-
-  // Loading overlay when creating session
-  if (isOpening) {
-    return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.openingText}>Creating session…</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   // ── GitHub mode ──────────────────────────────────────────────────────────
   if (hasGitHub) {
@@ -282,7 +217,7 @@ export function ProjectsScreen({ navigation }: ProjectsScreenProps) {
       {/* GitHub upsell banner */}
       <TouchableOpacity
         style={styles.upsellBanner}
-        onPress={() => navigation.navigate('Settings' as never)}
+        onPress={() => navigation.navigate('Settings')}
         activeOpacity={0.8}
       >
         <Ionicons name="logo-github" size={18} color={COLORS.white} />
@@ -331,7 +266,7 @@ export function ProjectsScreen({ navigation }: ProjectsScreenProps) {
               />
               <Text style={styles.emptyTitle}>No projects found</Text>
               <Text style={styles.emptyBody}>
-                Open a coding session from the Sessions tab to register a
+                Open a coding session from Chat to register a
                 project on the server.
               </Text>
             </View>

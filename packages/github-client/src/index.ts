@@ -7,6 +7,8 @@ export type {
   GitHubUser,
   GitHubRepo,
   GitHubRepoOwner,
+  GitHubBranch,
+  GitHubPullRequest,
   GitHubClientConfig,
   ListReposOptions,
 } from './types';
@@ -18,4 +20,6 @@ export {
   searchRepos,
   listOrgRepos,
   getAuthenticatedUser,
+  listBranches,
+  listPullRequests,
 } from './repos';

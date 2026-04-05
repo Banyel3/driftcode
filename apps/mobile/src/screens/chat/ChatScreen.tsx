@@ -2,7 +2,7 @@
  * ChatScreen — Phase 3
  *
  * Full agentic chat UI:
- *   - Creates a new session if none is active, or resumes the existing one.
+ *   - Loads an existing session and renders its conversation.
  *   - Renders the message list via a FlatList (auto-scrolls to the bottom).
  *   - Streams assistant messages live via the SSE event stream.
  *   - Shows a typing indicator while the AI is generating.
@@ -32,7 +32,6 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import {
   createOpenCodeClient,
-  createSession,
   getSession,
   executeCommand,
 } from '@driftcode/opencode-client';
@@ -50,7 +49,7 @@ import { useMessages, messageKeys } from '../../hooks/useMessages';
 import { useSendMessage } from '../../hooks/useSendMessage';
 import { useCommands } from '../../hooks/useCommands';
 import { MessageBubble, TypingIndicator } from './MessageBubble';
-import type { ChatScreenProps } from '../../navigation/types';
+import type { ConversationScreenProps } from '../../navigation/types';
 
 // ---------------------------------------------------------------------------
 // Helper — build the opencode client from the store
@@ -72,61 +71,33 @@ function useOpenCodeClient() {
 // ---------------------------------------------------------------------------
 // Screen
 // ---------------------------------------------------------------------------
-export function ChatScreen({ route }: ChatScreenProps) {
+export function ChatScreen({ route, navigation }: ConversationScreenProps) {
   // ── Store ────────────────────────────────────────────────────────────────
-  const activeSessionId = useConnectionStore((s) => s.activeSessionId);
   const setActiveSessionId = useConnectionStore((s) => s.setActiveSessionId);
 
-  // The tab can receive a sessionId param (e.g. tapped from Sessions tab).
-  const routeSessionId = route.params?.sessionId ?? null;
+  const routeSessionId = route.params.sessionId;
   // A pre-filled message to send automatically once the session is ready
   // (e.g. a clone instruction from the Projects tab).
-  const initialMessage = route.params?.initialMessage ?? null;
-
-  // Effective session: param > store > null
-  const sessionId = routeSessionId ?? activeSessionId;
+  const initialMessage = route.params.initialMessage ?? null;
+  const sessionId = routeSessionId;
 
   // ── Session state ────────────────────────────────────────────────────────
   const [session, setSession] = useState<Session | null>(null);
-  const [isCreatingSession, setIsCreatingSession] = useState(false);
 
   const client = useOpenCodeClient();
   const queryClient = useQueryClient();
 
-  // Load or create a session on mount / when sessionId changes.
+  // Load the existing session metadata.
   useEffect(() => {
     if (!client) return;
-
-    if (sessionId) {
-      // Try to load the existing session metadata.
-      getSession(client, sessionId)
-        .then(setSession)
-        .catch(() => {
-          // Session no longer exists — clear it and create a fresh one.
-          setActiveSessionId(null);
-        });
-    }
-    // If sessionId is null we wait for the user to tap "New session".
-  }, [sessionId, client, setActiveSessionId]);
-
-  const handleNewSession = useCallback(async () => {
-    if (!client) return;
-    setIsCreatingSession(true);
-    try {
-      const newSession = await createSession(client, {});
-      setSession(newSession);
-      setActiveSessionId(newSession.id);
-      // Clear the message cache for the new session.
-      queryClient.removeQueries({ queryKey: messageKeys.session(newSession.id) });
-    } catch (err) {
-      Alert.alert(
-        'Could not create session',
-        err instanceof Error ? err.message : String(err),
-      );
-    } finally {
-      setIsCreatingSession(false);
-    }
-  }, [client, setActiveSessionId, queryClient]);
+    getSession(client, sessionId)
+      .then(setSession)
+      .catch(() => {
+        Alert.alert('Session not found', 'This session may have been deleted.');
+        navigation.goBack();
+      });
+    setActiveSessionId(sessionId);
+  }, [sessionId, client, setActiveSessionId, navigation]);
 
   // ── Messages ─────────────────────────────────────────────────────────────
   const { messages, isLoading, isStreaming } = useMessages(sessionId);
@@ -237,7 +208,6 @@ export function ChatScreen({ route }: ChatScreenProps) {
     : '';
 
   const showCommandSuggestions =
-    sessionId !== null &&
     inputText.startsWith('/') &&
     !inputText.includes(' ');
 
@@ -249,10 +219,10 @@ export function ChatScreen({ route }: ChatScreenProps) {
   }, [showCommandSuggestions, commandQuery, commands]);
 
   useEffect(() => {
-    if (showCommandSuggestions && sessionId) {
+    if (showCommandSuggestions) {
       void refetchCommands();
     }
-  }, [showCommandSuggestions, sessionId, refetchCommands]);
+  }, [showCommandSuggestions, refetchCommands]);
 
   const handleSelectCommand = useCallback((cmd: Command) => {
     // Fill the input with the command name + a trailing space so the user
@@ -263,7 +233,7 @@ export function ChatScreen({ route }: ChatScreenProps) {
   // ── Send handler ─────────────────────────────────────────────────────────
   const handleSend = useCallback(() => {
     const text = inputText.trim();
-    if (!text || isBusy || !sessionId) return;
+    if (!text || isBusy) return;
     setInputText('');
 
     if (text.startsWith('/')) {
@@ -315,45 +285,10 @@ export function ChatScreen({ route }: ChatScreenProps) {
   // requires a component type or render fn for ListFooterComponent, not JSX.
   const ListFooter = isStreaming ? TypingIndicator : null;
 
-  // ── No session state ─────────────────────────────────────────────────────
-  if (!sessionId) {
-    return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <Header session={null} onNewSession={handleNewSession} isCreating={isCreatingSession} />
-        <View style={styles.empty}>
-          <Ionicons
-            name="chatbubble-ellipses-outline"
-            size={56}
-            color={COLORS.textMuted}
-          />
-          <Text style={styles.emptyTitle}>No active session</Text>
-          <Text style={styles.emptyBody}>
-            Tap the button above to start a new AI coding session, or open one
-            from the Sessions tab.
-          </Text>
-          <TouchableOpacity
-            style={styles.newSessionBtn}
-            onPress={handleNewSession}
-            disabled={isCreatingSession}
-          >
-            {isCreatingSession ? (
-              <ActivityIndicator size="small" color={COLORS.white} />
-            ) : (
-              <>
-                <Ionicons name="add" size={18} color={COLORS.white} />
-                <Text style={styles.newSessionBtnText}>New session</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   // ── Main chat UI ─────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <Header session={session} onNewSession={handleNewSession} isCreating={isCreatingSession} />
+      <Header session={session} />
 
       <KeyboardAvoidingView
         style={styles.flex}
@@ -474,11 +409,9 @@ export function ChatScreen({ route }: ChatScreenProps) {
 // ---------------------------------------------------------------------------
 interface HeaderProps {
   session: Session | null;
-  onNewSession: () => void;
-  isCreating: boolean;
 }
 
-function Header({ session, onNewSession, isCreating }: HeaderProps) {
+function Header({ session }: HeaderProps) {
   return (
     <View style={styles.header}>
       <View style={styles.headerLeft}>
@@ -491,17 +424,6 @@ function Header({ session, onNewSession, isCreating }: HeaderProps) {
           </Text>
         )}
       </View>
-      <TouchableOpacity
-        style={styles.headerBtn}
-        onPress={onNewSession}
-        disabled={isCreating}
-      >
-        {isCreating ? (
-          <ActivityIndicator size="small" color={COLORS.primary} />
-        ) : (
-          <Ionicons name="add-circle-outline" size={22} color={COLORS.primary} />
-        )}
-      </TouchableOpacity>
     </View>
   );
 }
@@ -546,41 +468,6 @@ const styles = StyleSheet.create({
     height: MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  // ── Empty / loading ──────────────────────────────────────────────────────
-  empty: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: SPACING.xl,
-    gap: SPACING.md,
-  },
-  emptyTitle: {
-    fontSize: FONT_SIZE.xl,
-    fontWeight: '700',
-    color: COLORS.text,
-  },
-  emptyBody: {
-    fontSize: FONT_SIZE.sm,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  newSessionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.xs,
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.sm,
-    borderRadius: BORDER_RADIUS.full,
-    marginTop: SPACING.sm,
-    minHeight: MIN_TOUCH_TARGET,
-  },
-  newSessionBtnText: {
-    fontSize: FONT_SIZE.md,
-    fontWeight: '600',
-    color: COLORS.white,
   },
   loadingWrapper: {
     flex: 1,

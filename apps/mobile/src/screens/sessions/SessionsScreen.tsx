@@ -37,9 +37,9 @@ import { useConnectionStore } from '../../store';
 import { useSessions } from '../../hooks/useSessions';
 import { messageKeys } from '../../hooks/useMessages';
 import { SessionCard } from './SessionCard';
-import type { SessionsScreenProps } from '../../navigation/types';
+import type { SessionListScreenProps } from '../../navigation/types';
 
-export function SessionsScreen({ navigation }: SessionsScreenProps) {
+export function SessionsScreen({ navigation }: SessionListScreenProps) {
   const serverUrl = useConnectionStore((s) => s.serverUrl);
   const serverUsername = useConnectionStore((s) => s.serverUsername);
   const serverPassword = useConnectionStore((s) => s.serverPassword);
@@ -62,8 +62,7 @@ export function SessionsScreen({ navigation }: SessionsScreenProps) {
   const handleOpen = useCallback(
     (session: Session) => {
       setActiveSessionId(session.id);
-      // Navigate to the Chat tab and pass the sessionId as a param.
-      navigation.navigate('Chat', { sessionId: session.id });
+      navigation.navigate('Conversation', { sessionId: session.id });
     },
     [navigation, setActiveSessionId],
   );
@@ -83,7 +82,7 @@ export function SessionsScreen({ navigation }: SessionsScreenProps) {
       queryClient.removeQueries({
         queryKey: messageKeys.session(newSession.id),
       });
-      navigation.navigate('Chat', { sessionId: newSession.id });
+      navigation.navigate('Conversation', { sessionId: newSession.id });
     } catch (err) {
       Alert.alert(
         'Could not create session',

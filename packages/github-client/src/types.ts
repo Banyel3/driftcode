@@ -37,6 +37,28 @@ export interface GitHubRepo {
   topics: string[];
 }
 
+export interface GitHubBranch {
+  name: string;
+  protected: boolean;
+  commitSha: string;
+}
+
+export interface GitHubPullRequest {
+  id: number;
+  number: number;
+  title: string;
+  state: 'open' | 'closed';
+  htmlUrl: string;
+  createdAt: string;
+  updatedAt: string;
+  user: {
+    login: string;
+    avatarUrl: string;
+  };
+  headRefName: string;
+  baseRefName: string;
+}
+
 export interface GitHubClientConfig {
   token: string;
 }

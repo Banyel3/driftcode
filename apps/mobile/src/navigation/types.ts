@@ -1,5 +1,6 @@
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { CompositeScreenProps } from '@react-navigation/native';
+import type { NavigatorScreenParams } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 // ---------------------------------------------------------------------------
@@ -16,13 +17,21 @@ export type RootStackParamList = {
 // Bottom tab navigator
 // ---------------------------------------------------------------------------
 export type RootTabParamList = {
-  /** Chat tab — can receive an optional sessionId and/or a pre-filled message */
-  Chat: { sessionId?: string; initialMessage?: string } | undefined;
-  Sessions: undefined;
-  Projects: undefined;
+  Chat: NavigatorScreenParams<ChatStackParamList> | undefined;
+  Projects: NavigatorScreenParams<ProjectsStackParamList> | undefined;
   /** Files tab — can receive an optional filePath to open directly */
   Files: { filePath?: string } | undefined;
   Settings: undefined;
+};
+
+export type ChatStackParamList = {
+  SessionList: undefined;
+  Conversation: { sessionId: string; initialMessage?: string };
+};
+
+export type ProjectsStackParamList = {
+  ProjectList: undefined;
+  ProjectDetail: undefined;
 };
 
 // ---------------------------------------------------------------------------
@@ -33,18 +42,32 @@ export type RootStackScreenProps<T extends keyof RootStackParamList> =
 
 export type ConnectScreenProps = RootStackScreenProps<'Connect'>;
 
-export type ChatScreenProps = CompositeScreenProps<
+export type ChatStackScreenProps<T extends keyof ChatStackParamList> =
+  CompositeScreenProps<
+    NativeStackScreenProps<ChatStackParamList, T>,
+    CompositeScreenProps<
+      BottomTabScreenProps<RootTabParamList, 'Chat'>,
+      NativeStackScreenProps<RootStackParamList>
+    >
+  >;
+
+export type SessionListScreenProps = ChatStackScreenProps<'SessionList'>;
+export type ConversationScreenProps = ChatStackScreenProps<'Conversation'>;
+
+export type ProjectsStackScreenProps<T extends keyof ProjectsStackParamList> =
+  CompositeScreenProps<
+    NativeStackScreenProps<ProjectsStackParamList, T>,
+    CompositeScreenProps<
+      BottomTabScreenProps<RootTabParamList, 'Projects'>,
+      NativeStackScreenProps<RootStackParamList>
+    >
+  >;
+
+export type ProjectListScreenProps = ProjectsStackScreenProps<'ProjectList'>;
+export type ProjectDetailScreenProps = ProjectsStackScreenProps<'ProjectDetail'>;
+
+export type ChatTabScreenProps = CompositeScreenProps<
   BottomTabScreenProps<RootTabParamList, 'Chat'>,
-  NativeStackScreenProps<RootStackParamList>
->;
-
-export type SessionsScreenProps = CompositeScreenProps<
-  BottomTabScreenProps<RootTabParamList, 'Sessions'>,
-  NativeStackScreenProps<RootStackParamList>
->;
-
-export type ProjectsScreenProps = CompositeScreenProps<
-  BottomTabScreenProps<RootTabParamList, 'Projects'>,
   NativeStackScreenProps<RootStackParamList>
 >;
 

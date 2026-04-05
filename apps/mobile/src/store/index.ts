@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import { SECURE_STORE_KEYS, DEFAULT_SERVER_USERNAME } from '../constants';
+import type { Project } from '@driftcode/opencode-client';
+import type { GitHubRepo } from '@driftcode/github-client';
+
+export type ActiveProject =
+  | { kind: 'server'; project: Project }
+  | { kind: 'github'; repo: GitHubRepo };
 
 // ---------------------------------------------------------------------------
 // Shape
@@ -23,6 +29,9 @@ interface ConnectionState {
   /** Currently open session id (drives the Chat tab) */
   activeSessionId: string | null;
 
+  /** Currently selected app-wide project context (server or GitHub repo). */
+  activeProject: ActiveProject | null;
+
   /** User-configured directory for git clone operations */
   cloneDirectory: string;
 
@@ -41,6 +50,8 @@ interface ConnectionState {
   setGithubToken: (token: string | null) => void;
   setIsConnected: (connected: boolean) => void;
   setActiveSessionId: (sessionId: string | null) => void;
+  setActiveProject: (project: ActiveProject | null) => void;
+  clearActiveProject: () => void;
   setCloneDirectory: (dir: string) => void;
 
   /** Marks onboarding as done and persists the flag to SecureStore */
@@ -77,6 +88,7 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
   isConnected: false,
   isOnboardingComplete: false,
   activeSessionId: null,
+  activeProject: null,
   cloneDirectory: '~/projects/',
   rememberCredentials: true,
 
@@ -115,6 +127,20 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
 
   setActiveSessionId: (sessionId) => {
     set({ activeSessionId: sessionId });
+  },
+
+  setActiveProject: (project) => {
+    set({ activeProject: project });
+    if (project) {
+      void SecureStore.setItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT, JSON.stringify(project));
+    } else {
+      void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT);
+    }
+  },
+
+  clearActiveProject: () => {
+    set({ activeProject: null });
+    void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT);
   },
 
   setCloneDirectory: (dir) => {
@@ -157,10 +183,12 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
       githubToken: null,
       isConnected: false,
       activeSessionId: null,
+      activeProject: null,
     });
     void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.SERVER_URL);
     void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.SERVER_PASSWORD);
     void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.GITHUB_TOKEN);
+    void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT);
   },
 
   hydrate: async () => {
@@ -172,6 +200,7 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
       cloneDir,
       onboardingDone,
       rememberRaw,
+      activeProjectRaw,
     ] = await Promise.all([
       SecureStore.getItemAsync(SECURE_STORE_KEYS.SERVER_URL),
       SecureStore.getItemAsync(SECURE_STORE_KEYS.SERVER_USERNAME),
@@ -180,10 +209,29 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
       SecureStore.getItemAsync(SECURE_STORE_KEYS.CLONE_DIRECTORY),
       SecureStore.getItemAsync(SECURE_STORE_KEYS.ONBOARDING_COMPLETE),
       SecureStore.getItemAsync(SECURE_STORE_KEYS.REMEMBER_CREDENTIALS),
+      SecureStore.getItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT),
     ]);
 
     // rememberRaw is null on first launch (key not yet written) — default true.
     const rememberCredentials = rememberRaw === null ? true : rememberRaw === 'true';
+
+    let activeProject: ActiveProject | null = null;
+    if (activeProjectRaw) {
+      try {
+        const parsed = JSON.parse(activeProjectRaw) as unknown;
+        if (
+          typeof parsed === 'object' &&
+          parsed !== null &&
+          'kind' in parsed &&
+          ((parsed as { kind: string }).kind === 'server' ||
+            (parsed as { kind: string }).kind === 'github')
+        ) {
+          activeProject = parsed as ActiveProject;
+        }
+      } catch {
+        activeProject = null;
+      }
+    }
 
     set({
       serverUrl,
@@ -192,6 +240,7 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
       githubToken,
       isOnboardingComplete: onboardingDone === 'true',
       rememberCredentials,
+      activeProject,
       ...(cloneDir ? { cloneDirectory: cloneDir } : {}),
     });
   },

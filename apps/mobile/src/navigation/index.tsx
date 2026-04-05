@@ -7,16 +7,24 @@ import { Ionicons } from '@expo/vector-icons';
 import { ChatScreen } from '../screens/chat/ChatScreen';
 import { SessionsScreen } from '../screens/sessions/SessionsScreen';
 import { ProjectsScreen } from '../screens/projects/ProjectsScreen';
+import { ProjectDetailScreen } from '../screens/projects/ProjectDetailScreen';
 import { FilesScreen } from '../screens/files/FilesScreen';
 import { SettingsScreen } from '../screens/settings/SettingsScreen';
 import { OnboardingScreen } from '../screens/onboarding/OnboardingScreen';
 import { ConnectScreen } from '../screens/onboarding/ConnectScreen';
 import { useConnectionStore } from '../store';
 import { COLORS } from '../constants/colors';
-import type { RootStackParamList, RootTabParamList } from './types';
+import type {
+  RootStackParamList,
+  RootTabParamList,
+  ChatStackParamList,
+  ProjectsStackParamList,
+} from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<RootTabParamList>();
+const ChatStack = createNativeStackNavigator<ChatStackParamList>();
+const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
 
 // ─── Tab icon map ─────────────────────────────────────────────────────────────
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -26,11 +34,28 @@ const TAB_ICONS: Record<
   { focused: IoniconName; unfocused: IoniconName }
 > = {
   Chat: { focused: 'chatbubble', unfocused: 'chatbubble-outline' },
-  Sessions: { focused: 'layers', unfocused: 'layers-outline' },
   Projects: { focused: 'git-branch', unfocused: 'git-branch-outline' },
   Files: { focused: 'folder', unfocused: 'folder-outline' },
   Settings: { focused: 'settings', unfocused: 'settings-outline' },
 };
+
+function ChatTabStack() {
+  return (
+    <ChatStack.Navigator screenOptions={{ headerShown: false }}>
+      <ChatStack.Screen name="SessionList" component={SessionsScreen} />
+      <ChatStack.Screen name="Conversation" component={ChatScreen} />
+    </ChatStack.Navigator>
+  );
+}
+
+function ProjectsTabStack() {
+  return (
+    <ProjectsStack.Navigator screenOptions={{ headerShown: false }}>
+      <ProjectsStack.Screen name="ProjectList" component={ProjectsScreen} />
+      <ProjectsStack.Screen name="ProjectDetail" component={ProjectDetailScreen} />
+    </ProjectsStack.Navigator>
+  );
+}
 
 // ─── Bottom tab navigator ─────────────────────────────────────────────────────
 function MainTabs() {
@@ -58,9 +83,19 @@ function MainTabs() {
         },
       })}
     >
-      <Tab.Screen name="Chat" component={ChatScreen} />
-      <Tab.Screen name="Sessions" component={SessionsScreen} />
-      <Tab.Screen name="Projects" component={ProjectsScreen} />
+      <Tab.Screen
+        name="Chat"
+        component={ChatTabStack}
+        listeners={({ navigation, route }) => ({
+          tabPress: () => {
+            const nestedState = (route as { state?: { index?: number } }).state;
+            if (nestedState?.index && nestedState.index > 0) {
+              navigation.navigate('Chat', { screen: 'SessionList' });
+            }
+          },
+        })}
+      />
+      <Tab.Screen name="Projects" component={ProjectsTabStack} />
       <Tab.Screen name="Files" component={FilesScreen} />
       <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>

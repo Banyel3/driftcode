@@ -37,7 +37,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   createOpenCodeClient,
   createSession,
-  getSession,
 } from '@driftcode/opencode-client';
 
 import {
@@ -58,29 +57,14 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
   const serverUsername = useConnectionStore((s) => s.serverUsername);
   const serverPassword = useConnectionStore((s) => s.serverPassword);
   const activeSessionId = useConnectionStore((s) => s.activeSessionId);
+  const activeProject = useConnectionStore((s) => s.activeProject);
   const setActiveSessionId = useConnectionStore((s) => s.setActiveSessionId);
   const queryClient = useQueryClient();
 
-  // ── Root path — use active session's dir if available ────────────────────
-  // Starts as null; only set to a real path once we have one.
-  // We NEVER default to '/' to avoid browsing the server filesystem root.
-  const [rootPath, setRootPath] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!activeSessionId || !serverUrl || !serverPassword) return;
-    const client = createOpenCodeClient({
-      serverUrl,
-      username: serverUsername,
-      password: serverPassword,
-    });
-    getSession(client, activeSessionId)
-      .then((session) => {
-        if (session.path && typeof session.path === 'string') {
-          setRootPath(session.path);
-        }
-      })
-      .catch(() => {/* ignore — keep rootPath as null */});
-  }, [activeSessionId, serverUrl, serverPassword, serverUsername]);
+  const rootPath =
+    activeProject?.kind === 'server'
+      ? activeProject.project.path
+      : null;
 
   // ── File selection ────────────────────────────────────────────────────────
   const routeFilePath = route.params?.filePath ?? null;
@@ -118,7 +102,10 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
           setActiveSessionId(sessionId);
           queryClient.removeQueries({ queryKey: messageKeys.session(sessionId) });
         }
-        navigation.navigate('Chat', { sessionId, initialMessage: message });
+        navigation.navigate('Chat', {
+          screen: 'Conversation',
+          params: { sessionId, initialMessage: message },
+        });
       } catch (err) {
         Alert.alert(
           'Could not open session',
@@ -174,9 +161,13 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
       {rootPath === null ? (
         <View style={styles.center}>
           <Ionicons name="folder-open-outline" size={48} color={COLORS.textMuted} />
-          <Text style={styles.emptyTitle}>No project open</Text>
+          <Text style={styles.emptyTitle}>
+            {activeProject?.kind === 'github' ? 'Repository not opened on server' : 'No project open'}
+          </Text>
           <Text style={styles.emptyBody}>
-            Open a project from the Projects tab or start a session from the Sessions tab to browse files here.
+            {activeProject?.kind === 'github'
+              ? 'Open a session from the project detail screen to clone and open this repository on your server, then files will appear here.'
+              : 'Select a project from the Projects tab to browse files here.'}
           </Text>
         </View>
       ) : isLoading ? (
