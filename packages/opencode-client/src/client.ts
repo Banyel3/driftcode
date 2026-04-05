@@ -54,11 +54,12 @@ export class OpenCodeClient {
   private async request<T>(
     path: string,
     options: RequestInit = {},
+    timeoutMs: number = REQUEST_TIMEOUT_MS,
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     let response: Response;
     try {
@@ -71,9 +72,16 @@ export class OpenCodeClient {
           ...(options.headers as Record<string, string>),
         },
       });
-    } finally {
+    } catch (err) {
       clearTimeout(timer);
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error(
+          `Request timed out after ${timeoutMs / 1_000}s. The server is taking too long to respond.`,
+        );
+      }
+      throw err;
     }
+    clearTimeout(timer);
 
     if (!response.ok) {
       let error: APIErrorBody;
@@ -98,26 +106,34 @@ export class OpenCodeClient {
 
   // ── HTTP verbs ───────────────────────────────────────────────────────────
 
-  async get<T>(path: string): Promise<T> {
-    return this.request<T>(path, { method: 'GET' });
+  async get<T>(path: string, timeoutMs?: number): Promise<T> {
+    return this.request<T>(path, { method: 'GET' }, timeoutMs ?? REQUEST_TIMEOUT_MS);
   }
 
-  async post<T>(path: string, body?: unknown): Promise<T> {
-    return this.request<T>(path, {
-      method: 'POST',
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+  async post<T>(path: string, body?: unknown, timeoutMs?: number): Promise<T> {
+    return this.request<T>(
+      path,
+      {
+        method: 'POST',
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      },
+      timeoutMs ?? REQUEST_TIMEOUT_MS,
+    );
   }
 
-  async put<T>(path: string, body?: unknown): Promise<T> {
-    return this.request<T>(path, {
-      method: 'PUT',
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+  async put<T>(path: string, body?: unknown, timeoutMs?: number): Promise<T> {
+    return this.request<T>(
+      path,
+      {
+        method: 'PUT',
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      },
+      timeoutMs ?? REQUEST_TIMEOUT_MS,
+    );
   }
 
-  async delete<T>(path: string): Promise<T> {
-    return this.request<T>(path, { method: 'DELETE' });
+  async delete<T>(path: string, timeoutMs?: number): Promise<T> {
+    return this.request<T>(path, { method: 'DELETE' }, timeoutMs ?? REQUEST_TIMEOUT_MS);
   }
 
   // ── SSE helpers ──────────────────────────────────────────────────────────

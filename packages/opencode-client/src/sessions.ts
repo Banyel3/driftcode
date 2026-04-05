@@ -22,12 +22,14 @@ export async function getSession(
 /**
  * POST /session
  * Creates a new session. Optionally accepts a model and working-directory path.
+ * Session initialisation can take a while (model warm-up, workspace setup),
+ * so we allow up to 60 seconds before timing out.
  */
 export async function createSession(
   client: OpenCodeClient,
   request: CreateSessionRequest = {},
 ): Promise<Session> {
-  return client.post<Session>('/session', request);
+  return client.post<Session>('/session', request, 60_000);
 }
 
 /**
