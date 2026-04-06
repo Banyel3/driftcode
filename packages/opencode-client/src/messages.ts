@@ -130,7 +130,7 @@ export function normalizeIncomingMessage(raw: unknown, fallbackIndex = 0): Messa
     num(value.createdAt) ??
     num((value.time as { created?: unknown } | undefined)?.created) ??
     num((info.time as { created?: unknown } | undefined)?.created) ??
-    Date.now();
+    0;
 
   const rawParts = Array.isArray(value.parts)
     ? value.parts

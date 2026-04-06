@@ -334,7 +334,9 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
       false) && (lastMessage?.parts.length ?? 0) > 0;
 
   const assistantStreaming =
-    lastMessage?.role === 'assistant' && (hasNoText || hasPartialToolCall);
+    lastMessage?.role === 'assistant' &&
+    (hasPartialToolCall ||
+      (hasNoText && Date.now() - messageTimestamp(lastMessage) < 30_000));
 
   const lastUserIdx = [...messages].reverse().findIndex((message) => message.role === 'user');
   const lastAssistantIdx = [...messages].reverse().findIndex((message) => message.role === 'assistant');

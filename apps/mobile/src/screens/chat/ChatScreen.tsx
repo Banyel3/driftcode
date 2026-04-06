@@ -18,6 +18,7 @@ import {
   Text,
   StyleSheet,
   FlatList,
+  Modal,
   ScrollView,
   TextInput,
   TouchableOpacity,
@@ -50,6 +51,7 @@ import { useSendMessage } from '../../hooks/useSendMessage';
 import { useCommands } from '../../hooks/useCommands';
 import { MessageBubble } from './MessageBubble';
 import { ReasoningBlock } from './ReasoningBlock';
+import { ToolCallCard } from './ToolCallCard';
 import type { ConversationScreenProps } from '../../navigation/types';
 
 // ---------------------------------------------------------------------------
@@ -174,6 +176,7 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
   // ── Composer state ───────────────────────────────────────────────────────
   const [inputText, setInputText] = useState('');
   const [showThinkingDetails, setShowThinkingDetails] = useState(false);
+  const [activityModalMessage, setActivityModalMessage] = useState<Message | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
   const hasInitialScrollRef = useRef(false);
   const prevSessionIdRef = useRef<string | null>(sessionId);
@@ -218,6 +221,41 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
     }
     return null;
   }, [messages]);
+
+  const getPublicParts = useCallback((message: Message) => {
+    if (message.role === 'user') return message.parts;
+    return message.parts.filter(
+      (part) =>
+        (part.type === 'text' && part.text.trim().length > 0) ||
+        part.type === 'file',
+    );
+  }, []);
+
+  const getInternalParts = useCallback((message: Message) => {
+    if (message.role !== 'assistant') return [] as Message['parts'];
+    return message.parts.filter(
+      (part) =>
+        part.type === 'reasoning' ||
+        part.type === 'tool-invocation' ||
+        part.type === 'step-start',
+    );
+  }, []);
+
+  const buildActivitySummary = useCallback((message: Message) => {
+    const internalParts = getInternalParts(message);
+    if (internalParts.length === 0) return null;
+
+    const toolCount = internalParts.filter((part) => part.type === 'tool-invocation').length;
+    const hasThinking = internalParts.some((part) => part.type === 'reasoning');
+
+    if (toolCount > 0 && hasThinking) {
+      return `Thinking • ${toolCount} tool action${toolCount > 1 ? 's' : ''}`;
+    }
+    if (toolCount > 0) {
+      return `${toolCount} tool action${toolCount > 1 ? 's' : ''}`;
+    }
+    return 'Thinking';
+  }, [getInternalParts]);
 
   // ── Slash command suggestion logic ───────────────────────────────────────
   // Show suggestions whenever the input starts with "/" and has no space yet
@@ -268,15 +306,37 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
 
   // ── Render helpers ───────────────────────────────────────────────────────
   const renderItem = useCallback(({ item }: { item: Message }) => {
-    const isAssistant = item.role === 'assistant';
-    const hasDisplayOutput = item.parts.some((part) => part.type !== 'reasoning');
+    const publicParts = getPublicParts(item);
+    const internalParts = getInternalParts(item);
+    const summary = buildActivitySummary(item);
+    const shouldShowBubble = item.role === 'user' || publicParts.length > 0;
 
-    if (isAssistant && !hasDisplayOutput) {
-      return null;
-    }
+    if (!shouldShowBubble && internalParts.length === 0) return null;
 
-    return <MessageBubble message={item} />;
-  }, []);
+    const displayMessage: Message = shouldShowBubble
+      ? {
+        ...item,
+        parts: item.role === 'assistant' ? publicParts : item.parts,
+      }
+      : item;
+
+    return (
+      <View>
+        {shouldShowBubble ? <MessageBubble message={displayMessage} /> : null}
+        {item.role === 'assistant' && summary ? (
+          <TouchableOpacity
+            style={styles.activityRow}
+            onPress={() => setActivityModalMessage(item)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="analytics-outline" size={12} color={COLORS.warning} />
+            <Text style={styles.activityText}>{summary}</Text>
+            <Text style={styles.activityLink}>View</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    );
+  }, [buildActivitySummary, getInternalParts, getPublicParts]);
 
   const duplicateMessageIds = useMemo(() => {
     const seen = new Set<string>();
@@ -340,8 +400,6 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
             showsVerticalScrollIndicator
             indicatorStyle="white"
             persistentScrollbar
-            // Keep list scrolled to the latest message.
-            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
           />
         )}
 
@@ -446,6 +504,61 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
             )}
           </TouchableOpacity>
         </View>
+
+        <Modal
+          visible={activityModalMessage !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setActivityModalMessage(null)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>AI Internal Activity</Text>
+                <TouchableOpacity
+                  style={styles.modalCloseBtn}
+                  onPress={() => setActivityModalMessage(null)}
+                >
+                  <Ionicons name="close" size={18} color={COLORS.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+                {(activityModalMessage?.parts ?? [])
+                  .filter(
+                    (part) =>
+                      part.type === 'reasoning' ||
+                      part.type === 'tool-invocation' ||
+                      part.type === 'step-start',
+                  )
+                  .map((part, idx) => {
+                    if (part.type === 'reasoning') {
+                      return (
+                        <ReasoningBlock
+                          key={`modal-reasoning-${idx}`}
+                          reasoning={part.reasoning}
+                        />
+                      );
+                    }
+                    if (part.type === 'tool-invocation') {
+                      return (
+                        <ToolCallCard
+                          key={`modal-tool-${part.toolInvocation.toolCallId}-${idx}`}
+                          toolInvocation={part.toolInvocation}
+                        />
+                      );
+                    }
+                    return (
+                      <View key={`modal-step-${idx}`} style={styles.modalStepRow}>
+                        <Ionicons name="ellipse" size={6} color={COLORS.textMuted} />
+                        <Text style={styles.modalStepText}>Step transition</Text>
+                      </View>
+                    );
+                  })}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -578,6 +691,30 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     lineHeight: 18,
   },
+  activityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    marginLeft: SPACING.md + 28 + SPACING.xs,
+    marginTop: -2,
+    marginBottom: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: BORDER_RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignSelf: 'flex-start',
+    backgroundColor: COLORS.surface,
+  },
+  activityText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+  },
+  activityLink: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.primary,
+    fontWeight: '700',
+  },
   thinkingStatusBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -615,6 +752,56 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     paddingHorizontal: SPACING.md,
     paddingBottom: SPACING.xs,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: SPACING.md,
+  },
+  modalCard: {
+    maxHeight: '80%',
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  modalTitle: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.text,
+    fontWeight: '700',
+  },
+  modalCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.surfaceElevated,
+  },
+  modalBody: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+  },
+  modalStepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    paddingVertical: 6,
+  },
+  modalStepText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
   },
   // ── Composer ─────────────────────────────────────────────────────────────
   composer: {
