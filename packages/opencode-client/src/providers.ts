@@ -1,5 +1,5 @@
 import type { OpenCodeClient } from './client';
-import type { ProviderInfo } from './types';
+import type { ProviderInfo, ConfigProvidersResponse, AgentInfo } from './types';
 
 /**
  * GET /provider
@@ -17,8 +17,18 @@ export async function listProviders(
  */
 export async function getConfiguredProviders(
   client: OpenCodeClient,
-): Promise<ProviderInfo[]> {
-  return client.get<ProviderInfo[]>('/config/providers');
+): Promise<ProviderInfo[] | ConfigProvidersResponse> {
+  return client.get<ProviderInfo[] | ConfigProvidersResponse>('/config/providers');
+}
+
+/**
+ * GET /agent
+ * Lists available agents for prompts.
+ */
+export async function listAgents(
+  client: OpenCodeClient,
+): Promise<AgentInfo[]> {
+  return client.get<AgentInfo[]>('/agent');
 }
 
 /**

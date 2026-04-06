@@ -19,6 +19,15 @@ export interface ActiveFileContext {
   snippet?: string;
 }
 
+export interface SessionRuntimeControls {
+  agent: string | null;
+  model: {
+    providerID: string;
+    modelID: string;
+  } | null;
+  variant: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Shape
 // ---------------------------------------------------------------------------
@@ -45,6 +54,9 @@ interface ConnectionState {
 
   /** Current chat-file context used to keep file-aware prompts persistent. */
   activeFileContext: ActiveFileContext | null;
+
+  /** Per-session runtime selections used when sending prompts/commands. */
+  sessionRuntimeControls: Record<string, SessionRuntimeControls>;
 
   /** User-configured directory for git clone operations */
   cloneDirectory: string;
@@ -73,6 +85,13 @@ interface ConnectionState {
   clearActiveProject: () => void;
   setActiveFileContext: (ctx: ActiveFileContext | null) => void;
   clearActiveFileContext: () => void;
+  setSessionAgent: (sessionId: string, agent: string | null) => void;
+  setSessionModel: (
+    sessionId: string,
+    model: { providerID: string; modelID: string } | null,
+  ) => void;
+  setSessionVariant: (sessionId: string, variant: string | null) => void;
+  clearSessionRuntimeControls: (sessionId: string) => void;
   setCloneDirectory: (dir: string) => void;
   setKeepActiveProject: (keep: boolean) => void;
 
@@ -112,6 +131,7 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
   activeSessionId: null,
   activeProject: null,
   activeFileContext: null,
+  sessionRuntimeControls: {},
   cloneDirectory: '~/projects/',
   keepActiveProject: false,
   rememberCredentials: true,
@@ -212,6 +232,53 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
     set({ activeFileContext: null });
   },
 
+  setSessionAgent: (sessionId, agent) => {
+    set((state) => ({
+      sessionRuntimeControls: {
+        ...state.sessionRuntimeControls,
+        [sessionId]: {
+          agent,
+          model: state.sessionRuntimeControls[sessionId]?.model ?? null,
+          variant: state.sessionRuntimeControls[sessionId]?.variant ?? null,
+        },
+      },
+    }));
+  },
+
+  setSessionModel: (sessionId, model) => {
+    set((state) => ({
+      sessionRuntimeControls: {
+        ...state.sessionRuntimeControls,
+        [sessionId]: {
+          agent: state.sessionRuntimeControls[sessionId]?.agent ?? null,
+          model,
+          variant: state.sessionRuntimeControls[sessionId]?.variant ?? null,
+        },
+      },
+    }));
+  },
+
+  setSessionVariant: (sessionId, variant) => {
+    set((state) => ({
+      sessionRuntimeControls: {
+        ...state.sessionRuntimeControls,
+        [sessionId]: {
+          agent: state.sessionRuntimeControls[sessionId]?.agent ?? null,
+          model: state.sessionRuntimeControls[sessionId]?.model ?? null,
+          variant,
+        },
+      },
+    }));
+  },
+
+  clearSessionRuntimeControls: (sessionId) => {
+    set((state) => {
+      const next = { ...state.sessionRuntimeControls };
+      delete next[sessionId];
+      return { sessionRuntimeControls: next };
+    });
+  },
+
   setCloneDirectory: (dir) => {
     set({ cloneDirectory: dir });
     void SecureStore.setItemAsync(SECURE_STORE_KEYS.CLONE_DIRECTORY, dir);
@@ -274,6 +341,7 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
       activeSessionId: null,
       activeProject: null,
       activeFileContext: null,
+      sessionRuntimeControls: {},
       keepActiveProject: false,
     });
     void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.SERVER_URL);

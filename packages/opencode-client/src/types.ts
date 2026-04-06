@@ -92,7 +92,12 @@ export interface Message {
 
 export interface SendMessageRequest {
   parts: TextPart[];
-  model?: string;
+  model?: {
+    providerID: string;
+    modelID: string;
+  };
+  agent?: string;
+  variant?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +135,18 @@ export interface ProviderInfo {
   name: string;
   models: ModelInfo[];
   enabled: boolean;
+}
+
+export interface ConfigProvidersResponse {
+  providers: ProviderInfo[];
+  default: Record<string, string>;
+}
+
+export interface AgentInfo {
+  name: string;
+  description?: string;
+  mode?: 'subagent' | 'primary' | 'all';
+  variant?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,7 +304,11 @@ export interface ExecuteCommandRequest {
   arguments: string;
   messageID?: string;
   agent?: string;
-  model?: string;
+  model?: {
+    providerID: string;
+    modelID: string;
+  };
+  variant?: string;
 }
 
 // ---------------------------------------------------------------------------

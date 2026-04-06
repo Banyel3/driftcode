@@ -54,10 +54,35 @@ import { useConnectionStore } from '../../store';
 import { useMessages, messageKeys } from '../../hooks/useMessages';
 import { useSendMessage } from '../../hooks/useSendMessage';
 import { useCommands } from '../../hooks/useCommands';
+import { useProviders } from '../../hooks/useProviders';
+import { useAgents } from '../../hooks/useAgents';
 import { MessageBubble } from './MessageBubble';
 import { ReasoningBlock } from './ReasoningBlock';
 import { ToolCallCard } from './ToolCallCard';
 import type { ConversationScreenProps } from '../../navigation/types';
+
+const RUNTIME_SLASH_COMMANDS: Command[] = [
+  {
+    name: 'agent',
+    description: 'choose the active agent for this session',
+    type: 'builtin',
+  },
+  {
+    name: 'model',
+    description: 'choose the active model for this session',
+    type: 'builtin',
+  },
+  {
+    name: 'models',
+    description: 'alias for /model',
+    type: 'builtin',
+  },
+  {
+    name: 'variant',
+    description: 'set a variant override for this session',
+    type: 'builtin',
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Helper — build the opencode client from the store
@@ -81,15 +106,22 @@ function useOpenCodeClient() {
 // ---------------------------------------------------------------------------
 export function ChatScreen({ route, navigation }: ConversationScreenProps) {
   // ── Store ────────────────────────────────────────────────────────────────
+  const routeSessionId = route.params.sessionId;
+  const sessionId = routeSessionId;
+
   const setActiveSessionId = useConnectionStore((s) => s.setActiveSessionId);
   const activeFileContext = useConnectionStore((s) => s.activeFileContext);
   const clearActiveFileContext = useConnectionStore((s) => s.clearActiveFileContext);
+  const runtimeControls = useConnectionStore((s) =>
+    sessionId ? s.sessionRuntimeControls[sessionId] : undefined,
+  );
+  const setSessionAgent = useConnectionStore((s) => s.setSessionAgent);
+  const setSessionModel = useConnectionStore((s) => s.setSessionModel);
+  const setSessionVariant = useConnectionStore((s) => s.setSessionVariant);
 
-  const routeSessionId = route.params.sessionId;
   // A pre-filled message to send automatically once the session is ready
   // (e.g. a clone instruction from the Projects tab).
   const initialMessage = route.params.initialMessage ?? null;
-  const sessionId = routeSessionId;
 
   const scopedFileContext = useMemo(() => {
     if (!activeFileContext) return null;
@@ -128,9 +160,77 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
     error: commandsError,
     refetch: refetchCommands,
   } = useCommands(sessionId);
+  const {
+    options: providerOptions,
+    isLoading: isLoadingProviders,
+    refresh: refreshProviders,
+  } = useProviders();
+  const {
+    agents,
+    isLoading: isLoadingAgents,
+    refetch: refetchAgents,
+  } = useAgents();
+
   const [isRunningCommand, setIsRunningCommand] = useState(false);
+  const [agentPickerVisible, setAgentPickerVisible] = useState(false);
+  const [modelPickerVisible, setModelPickerVisible] = useState(false);
+  const [variantModalVisible, setVariantModalVisible] = useState(false);
+  const [variantDraft, setVariantDraft] = useState('');
 
   const isBusy = isSending || isRunningCommand;
+
+  const selectedModel = useMemo(
+    () =>
+      providerOptions.find(
+        (option) =>
+          option.providerId === runtimeControls?.model?.providerID &&
+          option.modelId === runtimeControls?.model?.modelID,
+      ) ?? null,
+    [providerOptions, runtimeControls?.model?.providerID, runtimeControls?.model?.modelID],
+  );
+
+  useEffect(() => {
+    setVariantDraft(runtimeControls?.variant ?? '');
+  }, [runtimeControls?.variant]);
+
+  const selectedAgentName = runtimeControls?.agent ?? null;
+  const selectedVariant = runtimeControls?.variant ?? null;
+
+  const modelProviderGroups = useMemo(
+    () =>
+      Array.from(new Map(providerOptions.map((o) => [o.providerId, o.providerName])).entries()),
+    [providerOptions],
+  );
+
+  const applyAgentSelection = useCallback(
+    (agentName: string | null) => {
+      if (!sessionId) return;
+      setSessionAgent(sessionId, agentName);
+      setAgentPickerVisible(false);
+    },
+    [sessionId, setSessionAgent],
+  );
+
+  const applyModelSelection = useCallback(
+    (providerId: string, modelId: string) => {
+      if (!sessionId) return;
+      setSessionModel(sessionId, {
+        providerID: providerId,
+        modelID: modelId,
+      });
+      setModelPickerVisible(false);
+    },
+    [sessionId, setSessionModel],
+  );
+
+  const applyVariantSelection = useCallback(
+    (value: string | null) => {
+      if (!sessionId) return;
+      setSessionVariant(sessionId, value);
+      setVariantModalVisible(false);
+    },
+    [sessionId, setSessionVariant],
+  );
 
   const runSlashCommand = useCallback(
     async (commandName: string, commandArgs: string) => {
@@ -138,6 +238,65 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
       setIsRunningCommand(true);
       try {
         const normalizedName = commandName.trim().toLowerCase();
+
+        if (normalizedName === 'agent') {
+          if (commandArgs.trim()) {
+            const desired = commandArgs.trim().toLowerCase();
+            if (desired === 'default' || desired === 'none' || desired === 'clear') {
+              setSessionAgent(sessionId, null);
+              return;
+            }
+            const matched = agents.find((agent) => agent.name.toLowerCase() === desired);
+            if (matched) {
+              setSessionAgent(sessionId, matched.name);
+              return;
+            }
+          }
+          setAgentPickerVisible(true);
+          return;
+        }
+
+        if (normalizedName === 'model' || normalizedName === 'models') {
+          if (commandArgs.trim()) {
+            const desired = commandArgs.trim().toLowerCase();
+            if (desired === 'default' || desired === 'none' || desired === 'clear') {
+              setSessionModel(sessionId, null);
+              return;
+            }
+            const matched = providerOptions.find((option) => {
+              const modelOnly = option.modelId.toLowerCase();
+              const scoped = `${option.providerId.toLowerCase()}:${modelOnly}`;
+              return desired === modelOnly || desired === scoped;
+            });
+            if (matched) {
+              setSessionModel(sessionId, {
+                providerID: matched.providerId,
+                modelID: matched.modelId,
+              });
+              return;
+            }
+          }
+          setModelPickerVisible(true);
+          return;
+        }
+
+        if (normalizedName === 'variant') {
+          const nextVariant = commandArgs.trim();
+          if (nextVariant) {
+            if (
+              nextVariant.toLowerCase() === 'default' ||
+              nextVariant.toLowerCase() === 'none' ||
+              nextVariant.toLowerCase() === 'clear'
+            ) {
+              setSessionVariant(sessionId, null);
+              return;
+            }
+            setSessionVariant(sessionId, nextVariant);
+            return;
+          }
+          setVariantModalVisible(true);
+          return;
+        }
 
         if (normalizedName === 'share') {
           await shareSession(client, sessionId);
@@ -180,6 +339,9 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
         const message = await executeCommand(client, sessionId, {
           command: commandName,
           arguments: commandArgs,
+          ...(runtimeControls?.agent ? { agent: runtimeControls.agent } : {}),
+          ...(runtimeControls?.model ? { model: runtimeControls.model } : {}),
+          ...(runtimeControls?.variant ? { variant: runtimeControls.variant } : {}),
         });
         // Push the returned message directly into the cache.
         // Subsequent SSE updates will patch it in place if the server
@@ -210,7 +372,22 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
         setIsRunningCommand(false);
       }
     },
-    [client, sessionId, queryClient, setActiveSessionId, navigation, messages],
+    [
+      client,
+      sessionId,
+      queryClient,
+      setActiveSessionId,
+      navigation,
+      messages,
+      agents,
+      providerOptions,
+      runtimeControls?.agent,
+      runtimeControls?.model,
+      runtimeControls?.variant,
+      setSessionAgent,
+      setSessionModel,
+      setSessionVariant,
+    ],
   );
 
   // ── Auto-send initialMessage once session + send are ready ───────────────
@@ -323,18 +500,28 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
     inputText.startsWith('/') &&
     !inputText.includes(' ');
 
+  const allCommands = useMemo<Command[]>(() => {
+    const deduped = new Map<string, Command>();
+    for (const cmd of [...commands, ...RUNTIME_SLASH_COMMANDS]) {
+      deduped.set(cmd.name.toLowerCase(), cmd);
+    }
+    return Array.from(deduped.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [commands]);
+
   const filteredCommands = useMemo<Command[]>(() => {
     if (!showCommandSuggestions) return [];
-    if (commandQuery === '') return commands;
+    if (commandQuery === '') return allCommands;
     const q = commandQuery.toLowerCase();
-    return commands.filter((cmd) => cmd.name.toLowerCase().startsWith(q));
-  }, [showCommandSuggestions, commandQuery, commands]);
+    return allCommands.filter((cmd) => cmd.name.toLowerCase().startsWith(q));
+  }, [showCommandSuggestions, commandQuery, allCommands]);
 
   useEffect(() => {
     if (showCommandSuggestions) {
       void refetchCommands();
+      void refetchAgents();
+      void refreshProviders();
     }
-  }, [showCommandSuggestions, refetchCommands]);
+  }, [showCommandSuggestions, refetchCommands, refetchAgents, refreshProviders]);
 
   const handleSelectCommand = useCallback((cmd: Command) => {
     // Fill the input with the command name + a trailing space so the user
@@ -501,23 +688,24 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
               showsVerticalScrollIndicator={false}
               style={styles.commandSuggestionsScroll}
             >
-              {isLoadingCommands ? (
+              {isLoadingCommands || isLoadingAgents || isLoadingProviders ? (
                 <View style={styles.commandStateRow}>
                   <ActivityIndicator size="small" color={COLORS.primary} />
-                  <Text style={styles.commandStateText}>Loading commands…</Text>
-                </View>
-              ) : commandsError ? (
-                <View style={styles.commandStateRow}>
-                  <Ionicons name="warning-outline" size={16} color={COLORS.warning} />
-                  <Text style={styles.commandStateText} numberOfLines={2}>
-                    Could not load commands. Try typing / again or enter command manually.
-                  </Text>
+                  <Text style={styles.commandStateText}>Loading command controls…</Text>
                 </View>
               ) : filteredCommands.length === 0 ? (
                 <View style={styles.commandStateRow}>
-                  <Ionicons name="search-outline" size={16} color={COLORS.textSecondary} />
+                  <Ionicons
+                    name={commandsError ? 'warning-outline' : 'search-outline'}
+                    size={16}
+                    color={commandsError ? COLORS.warning : COLORS.textSecondary}
+                  />
                   <Text style={styles.commandStateText}>
-                    {commandQuery ? 'No matching commands.' : 'No commands available.'}
+                    {commandsError
+                      ? 'Could not load server commands. Runtime controls are still available.'
+                      : commandQuery
+                        ? 'No matching commands.'
+                        : 'No commands available.'}
                   </Text>
                 </View>
               ) : (
@@ -557,6 +745,41 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
           </View>
         )}
 
+        <View style={styles.runtimeControlsRow}>
+          <TouchableOpacity
+            style={styles.runtimeChip}
+            onPress={() => setAgentPickerVisible(true)}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.runtimeChipLabel}>Agent</Text>
+            <Text style={styles.runtimeChipValue} numberOfLines={1}>
+              {selectedAgentName ?? 'default'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.runtimeChip}
+            onPress={() => setModelPickerVisible(true)}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.runtimeChipLabel}>Model</Text>
+            <Text style={styles.runtimeChipValue} numberOfLines={1}>
+              {selectedModel ? `${selectedModel.providerName} · ${selectedModel.modelName}` : 'default'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.runtimeChip}
+            onPress={() => setVariantModalVisible(true)}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.runtimeChipLabel}>Variant</Text>
+            <Text style={styles.runtimeChipValue} numberOfLines={1}>
+              {selectedVariant ?? 'default'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.composer}>
           <TextInput
             style={styles.input}
@@ -584,6 +807,221 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
             )}
           </TouchableOpacity>
         </View>
+
+        <Modal
+          visible={agentPickerVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setAgentPickerVisible(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.pickerModalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Agent</Text>
+                <TouchableOpacity
+                  style={styles.modalCloseBtn}
+                  onPress={() => setAgentPickerVisible(false)}
+                >
+                  <Ionicons name="close" size={18} color={COLORS.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+                <TouchableOpacity
+                  style={styles.pickerItem}
+                  onPress={() => applyAgentSelection(null)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.pickerItemLabel}>Default</Text>
+                  {!selectedAgentName ? (
+                    <Ionicons name="checkmark" size={18} color={COLORS.primary} />
+                  ) : null}
+                </TouchableOpacity>
+
+                {isLoadingAgents ? (
+                  <View style={styles.commandStateRow}>
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                    <Text style={styles.commandStateText}>Loading agents…</Text>
+                  </View>
+                ) : agents.length === 0 ? (
+                  <View style={styles.commandStateRow}>
+                    <Ionicons name="information-circle-outline" size={16} color={COLORS.textMuted} />
+                    <Text style={styles.commandStateText}>No agents available on this server.</Text>
+                  </View>
+                ) : (
+                  agents.map((agent) => {
+                    const isSelected = selectedAgentName === agent.name;
+                    return (
+                      <TouchableOpacity
+                        key={agent.name}
+                        style={styles.pickerItem}
+                        onPress={() => applyAgentSelection(agent.name)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.pickerItemTextWrap}>
+                          <Text style={styles.pickerItemLabel}>{agent.name}</Text>
+                          {agent.description ? (
+                            <Text style={styles.pickerItemDescription} numberOfLines={2}>
+                              {agent.description}
+                            </Text>
+                          ) : null}
+                        </View>
+                        {isSelected ? (
+                          <Ionicons name="checkmark" size={18} color={COLORS.primary} />
+                        ) : null}
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal
+          visible={modelPickerVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setModelPickerVisible(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.pickerModalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Model</Text>
+                <TouchableOpacity
+                  style={styles.modalCloseBtn}
+                  onPress={() => setModelPickerVisible(false)}
+                >
+                  <Ionicons name="close" size={18} color={COLORS.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+                <TouchableOpacity
+                  style={styles.pickerItem}
+                  onPress={() => {
+                    if (!sessionId) return;
+                    setSessionModel(sessionId, null);
+                    setModelPickerVisible(false);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.pickerItemLabel}>Default</Text>
+                  {!selectedModel ? (
+                    <Ionicons name="checkmark" size={18} color={COLORS.primary} />
+                  ) : null}
+                </TouchableOpacity>
+
+                {isLoadingProviders ? (
+                  <View style={styles.commandStateRow}>
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                    <Text style={styles.commandStateText}>Loading models…</Text>
+                  </View>
+                ) : providerOptions.length === 0 ? (
+                  <View style={styles.commandStateRow}>
+                    <Ionicons name="information-circle-outline" size={16} color={COLORS.textMuted} />
+                    <Text style={styles.commandStateText}>No configured models available.</Text>
+                  </View>
+                ) : (
+                  modelProviderGroups.map(([providerId, providerName]) => {
+                    const providerModels = providerOptions.filter(
+                      (option) => option.providerId === providerId,
+                    );
+                    return (
+                      <View key={providerId} style={styles.pickerGroup}>
+                        <Text style={styles.pickerGroupLabel}>{providerName}</Text>
+                        {providerModels.map((option) => {
+                          const isSelected =
+                            runtimeControls?.model?.providerID === option.providerId &&
+                            runtimeControls?.model?.modelID === option.modelId;
+                          return (
+                            <TouchableOpacity
+                              key={`${option.providerId}:${option.modelId}`}
+                              style={styles.pickerItem}
+                              onPress={() => applyModelSelection(option.providerId, option.modelId)}
+                              activeOpacity={0.7}
+                            >
+                              <View style={styles.pickerItemTextWrap}>
+                                <Text style={styles.pickerItemLabel}>{option.modelName}</Text>
+                                <Text style={styles.pickerItemDescription}>{option.providerId}</Text>
+                              </View>
+                              {isSelected ? (
+                                <Ionicons name="checkmark" size={18} color={COLORS.primary} />
+                              ) : null}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    );
+                  })
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal
+          visible={variantModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setVariantModalVisible(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.variantModalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Variant</Text>
+                <TouchableOpacity
+                  style={styles.modalCloseBtn}
+                  onPress={() => setVariantModalVisible(false)}
+                >
+                  <Ionicons name="close" size={18} color={COLORS.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.variantBody}>
+                <Text style={styles.variantHint}>
+                  Set a temporary variant for this session. Leave empty to use the default.
+                </Text>
+                <TextInput
+                  style={styles.variantInput}
+                  value={variantDraft}
+                  onChangeText={setVariantDraft}
+                  placeholder="default"
+                  placeholderTextColor={COLORS.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="done"
+                  onSubmitEditing={() => {
+                    const value = variantDraft.trim();
+                    applyVariantSelection(value.length > 0 ? value : null);
+                  }}
+                />
+
+                <View style={styles.variantActions}>
+                  <TouchableOpacity
+                    style={[styles.variantButton, styles.variantButtonSecondary]}
+                    onPress={() => {
+                      setVariantDraft('');
+                      applyVariantSelection(null);
+                    }}
+                  >
+                    <Text style={styles.variantButtonSecondaryText}>Clear</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.variantButton, styles.variantButtonPrimary]}
+                    onPress={() => {
+                      const value = variantDraft.trim();
+                      applyVariantSelection(value.length > 0 ? value : null);
+                    }}
+                  >
+                    <Text style={styles.variantButtonPrimaryText}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         <Modal
           visible={activityModalMessage !== null}
@@ -862,11 +1300,146 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     fontWeight: '600',
   },
+  runtimeControlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    paddingBottom: SPACING.xs,
+    backgroundColor: COLORS.surface,
+  },
+  runtimeChip: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: BORDER_RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surfaceElevated,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 6,
+  },
+  runtimeChipLabel: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textMuted,
+    fontWeight: '600',
+    marginBottom: 1,
+  },
+  runtimeChipValue: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.text,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center',
     padding: SPACING.md,
+  },
+  pickerModalCard: {
+    maxHeight: '75%',
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    overflow: 'hidden',
+  },
+  pickerGroup: {
+    marginBottom: SPACING.sm,
+  },
+  pickerGroupLabel: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+    marginBottom: 4,
+    marginTop: 4,
+  },
+  pickerItem: {
+    minHeight: 44,
+    borderRadius: BORDER_RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.borderSubtle,
+    backgroundColor: COLORS.surfaceElevated,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    marginBottom: SPACING.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+  },
+  pickerItemTextWrap: {
+    flex: 1,
+  },
+  pickerItemLabel: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.text,
+    fontWeight: '600',
+  },
+  pickerItemDescription: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  variantModalCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    overflow: 'hidden',
+  },
+  variantBody: {
+    padding: SPACING.md,
+    gap: SPACING.sm,
+  },
+  variantHint: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
+  },
+  variantInput: {
+    minHeight: 44,
+    borderRadius: BORDER_RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surfaceElevated,
+    color: COLORS.text,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    fontSize: FONT_SIZE.md,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  variantActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    marginTop: SPACING.xs,
+  },
+  variantButton: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: BORDER_RADIUS.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  variantButtonSecondary: {
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surfaceElevated,
+  },
+  variantButtonPrimary: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primary,
+  },
+  variantButtonSecondaryText: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
+  variantButtonPrimaryText: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.white,
+    fontWeight: '700',
   },
   modalCard: {
     maxHeight: '80%',

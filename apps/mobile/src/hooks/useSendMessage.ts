@@ -40,6 +40,9 @@ export function useSendMessage(
   const serverUrl = useConnectionStore((s) => s.serverUrl);
   const serverUsername = useConnectionStore((s) => s.serverUsername);
   const serverPassword = useConnectionStore((s) => s.serverPassword);
+  const runtimeControls = useConnectionStore((s) =>
+    sessionId ? s.sessionRuntimeControls[sessionId] : undefined,
+  );
 
   const queryClient = useQueryClient();
   const abortRef = useRef<AbortController | null>(null);
@@ -74,6 +77,9 @@ export function useSendMessage(
 
       await sendMessageAsync(client, sessionId, {
         parts: [{ type: 'text', text }],
+        ...(runtimeControls?.agent ? { agent: runtimeControls.agent } : {}),
+        ...(runtimeControls?.model ? { model: runtimeControls.model } : {}),
+        ...(runtimeControls?.variant ? { variant: runtimeControls.variant } : {}),
       });
 
       // If SSE delivery is delayed/dropped by network middleboxes, this keeps

@@ -12,7 +12,11 @@ import {
   getConfiguredProviders,
   createOpenCodeClient,
 } from '@driftcode/opencode-client';
-import type { ProviderInfo, ModelInfo } from '@driftcode/opencode-client';
+import type {
+  ProviderInfo,
+  ModelInfo,
+  ConfigProvidersResponse,
+} from '@driftcode/opencode-client';
 import { useConnectionStore } from '../store';
 
 // ---------------------------------------------------------------------------
@@ -30,6 +34,7 @@ export interface ProviderModelOption {
   modelName: string;
   /** Optional context window size in tokens */
   contextLength?: number;
+  isDefault?: boolean;
 }
 
 export interface UseProvidersResult {
@@ -37,6 +42,7 @@ export interface UseProvidersResult {
   options: ProviderModelOption[];
   /** Raw provider list (if needed) */
   providers: ProviderInfo[];
+  defaults: Record<string, string>;
   isLoading: boolean;
   isError: boolean;
   error: Error | null;
@@ -61,30 +67,42 @@ export function useProviders(): UseProvidersResult {
   const serverPassword = useConnectionStore((s) => s.serverPassword);
 
   const { data, isLoading, isError, error, refetch } = useQuery<
-    ProviderInfo[],
+    { providers: ProviderInfo[]; defaults: Record<string, string> },
     Error
   >({
     queryKey: providerKeys.configured,
     enabled: serverUrl !== null && serverPassword !== null,
-    queryFn: async (): Promise<ProviderInfo[]> => {
-      if (!serverUrl || !serverPassword) return [];
+    queryFn: async (): Promise<{ providers: ProviderInfo[]; defaults: Record<string, string> }> => {
+      if (!serverUrl || !serverPassword) return { providers: [], defaults: {} };
       const client = createOpenCodeClient({
         serverUrl,
         username: serverUsername,
         password: serverPassword,
       });
       const raw = await getConfiguredProviders(client);
-      // The server may return an object map instead of an array depending on
-      // the opencode version — normalise to array defensively.
-      if (Array.isArray(raw)) return raw;
-      if (raw && typeof raw === 'object') return Object.values(raw) as ProviderInfo[];
-      return [];
+      if (Array.isArray(raw)) {
+        return { providers: raw, defaults: {} };
+      }
+      if (raw && typeof raw === 'object') {
+        const typed = raw as ConfigProvidersResponse;
+        if (Array.isArray(typed.providers)) {
+          return {
+            providers: typed.providers,
+            defaults:
+              typed.default && typeof typed.default === 'object'
+                ? typed.default
+                : {},
+          };
+        }
+      }
+      return { providers: [], defaults: {} };
     },
     staleTime: 5 * 60_000, // 5 minutes — providers rarely change
     refetchOnWindowFocus: false,
   });
 
-  const providers = Array.isArray(data) ? data : [];
+  const providers = data?.providers ?? [];
+  const defaults = data?.defaults ?? {};
 
   // Flatten providers → models into a single list for use in pickers.
   // Defensively validate every field — the server shape varies by version.
@@ -111,13 +129,21 @@ export function useProviders(): UseProvidersResult {
           modelId: model.id,
           modelName: model.name,
           contextLength: model.contextLength,
+          isDefault: defaults[provider.id] === model.id,
         }));
     },
   );
 
+  options.sort((a, b) => {
+    if (a.providerId !== b.providerId) return a.providerName.localeCompare(b.providerName);
+    if (!!a.isDefault !== !!b.isDefault) return a.isDefault ? -1 : 1;
+    return a.modelName.localeCompare(b.modelName);
+  });
+
   return {
     options,
     providers,
+    defaults,
     isLoading,
     isError,
     error: error ?? null,

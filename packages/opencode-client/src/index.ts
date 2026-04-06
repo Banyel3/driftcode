@@ -21,6 +21,8 @@ export type {
   FileContentResponse,
   ModelInfo,
   ProviderInfo,
+  ConfigProvidersResponse,
+  AgentInfo,
   Project,
   VCSInfo,
   InstancePathInfo,
@@ -77,6 +79,7 @@ export { listFiles, getFileContent, findFiles } from './files';
 export {
   listProviders,
   getConfiguredProviders,
+  listAgents,
   setProviderAuth,
 } from './providers';
 
