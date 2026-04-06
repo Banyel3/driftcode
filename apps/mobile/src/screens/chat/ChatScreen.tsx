@@ -77,12 +77,22 @@ function useOpenCodeClient() {
 export function ChatScreen({ route, navigation }: ConversationScreenProps) {
   // ── Store ────────────────────────────────────────────────────────────────
   const setActiveSessionId = useConnectionStore((s) => s.setActiveSessionId);
+  const activeFileContext = useConnectionStore((s) => s.activeFileContext);
+  const clearActiveFileContext = useConnectionStore((s) => s.clearActiveFileContext);
 
   const routeSessionId = route.params.sessionId;
   // A pre-filled message to send automatically once the session is ready
   // (e.g. a clone instruction from the Projects tab).
   const initialMessage = route.params.initialMessage ?? null;
   const sessionId = routeSessionId;
+
+  const scopedFileContext = useMemo(() => {
+    if (!activeFileContext) return null;
+    if (!activeFileContext.sessionId || activeFileContext.sessionId === sessionId) {
+      return activeFileContext;
+    }
+    return null;
+  }, [activeFileContext, sessionId]);
 
   // ── Session state ────────────────────────────────────────────────────────
   const [session, setSession] = useState<Session | null>(null);
@@ -300,9 +310,19 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
       const args = spaceIdx === -1 ? '' : text.slice(spaceIdx + 1).trim();
       void runSlashCommand(name, args);
     } else {
-      send(text);
+      if (scopedFileContext) {
+        const snippet = scopedFileContext.snippet?.trim();
+        const contextPrefix =
+          `Context file: \`${scopedFileContext.filePath}\`\n` +
+          (snippet
+            ? `\nRelevant snippet:\n\`\`\`\n${snippet}\n\`\`\`\n\n`
+            : '\n');
+        send(`${contextPrefix}${text}`);
+      } else {
+        send(text);
+      }
     }
-  }, [inputText, isBusy, sessionId, send, runSlashCommand]);
+  }, [inputText, isBusy, sessionId, send, runSlashCommand, scopedFileContext]);
 
   // ── Render helpers ───────────────────────────────────────────────────────
   const renderItem = useCallback(({ item }: { item: Message }) => {
@@ -477,6 +497,21 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
         )}
 
         {/* Composer */}
+        {scopedFileContext && (
+          <View style={styles.fileContextRow}>
+            <Ionicons name="document-text-outline" size={14} color={COLORS.info} />
+            <Text style={styles.fileContextText} numberOfLines={1}>
+              {scopedFileContext.filePath}
+            </Text>
+            <TouchableOpacity
+              style={styles.fileContextClear}
+              onPress={clearActiveFileContext}
+            >
+              <Text style={styles.fileContextClearText}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={styles.composer}>
           <TextInput
             style={styles.input}
@@ -752,6 +787,35 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     paddingHorizontal: SPACING.md,
     paddingBottom: SPACING.xs,
+  },
+  fileContextRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderSubtle,
+    backgroundColor: COLORS.surface,
+  },
+  fileContextText: {
+    flex: 1,
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.info,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  fileContextClear: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: BORDER_RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surfaceElevated,
+  },
+  fileContextClearText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
   },
   modalBackdrop: {
     flex: 1,

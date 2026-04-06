@@ -1,5 +1,5 @@
 import type { OpenCodeClient } from './client';
-import type { FileEntry } from './types';
+import type { FileEntry, FileContentResponse } from './types';
 
 /**
  * GET /file?path=<path>
@@ -20,9 +20,9 @@ export async function listFiles(
 export async function getFileContent(
   client: OpenCodeClient,
   filePath: string,
-): Promise<string> {
+): Promise<FileContentResponse> {
   const encodedPath = encodeURIComponent(filePath);
-  return client.get<string>(`/file/content?path=${encodedPath}`);
+  return client.get<FileContentResponse>(`/file/content?path=${encodedPath}`);
 }
 
 /**

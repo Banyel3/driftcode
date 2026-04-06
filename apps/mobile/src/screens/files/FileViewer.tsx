@@ -58,7 +58,7 @@ const ACTIONS: ActionBtn[] = [
 // ---------------------------------------------------------------------------
 interface FileViewerProps {
   filePath: string;
-  onAskAI: (message: string, filePath: string) => void;
+  onAskAI: (message: string, context: { filePath: string; snippet?: string }) => void;
   onClose?: () => void;
 }
 
@@ -67,7 +67,14 @@ export function FileViewer({
   onAskAI,
   onClose,
 }: FileViewerProps): React.ReactElement {
-  const { content, isLoading, isError, error, refresh } = useFileContent(filePath);
+  const {
+    contentText,
+    contentType,
+    isLoading,
+    isError,
+    error,
+    refresh,
+  } = useFileContent(filePath);
   const lang = detectLang(filePath);
 
   // Basename for the header
@@ -75,9 +82,13 @@ export function FileViewer({
 
   const handleAction = useCallback(
     (action: ActionBtn) => {
-      onAskAI(action.buildMessage(filePath), filePath);
+      const snippet =
+        contentType === 'text' && contentText
+          ? contentText.split('\n').slice(0, 120).join('\n').slice(0, 2500)
+          : undefined;
+      onAskAI(action.buildMessage(filePath), { filePath, snippet });
     },
-    [filePath, onAskAI],
+    [filePath, onAskAI, contentType, contentText],
   );
 
   return (
@@ -128,12 +139,18 @@ export function FileViewer({
               </TouchableOpacity>
             </View>
           )}
-          {!isLoading && !isError && content !== null && (
+          {!isLoading && !isError && contentType === 'text' && contentText !== null && (
             <View style={styles.codeInner}>
-              <SyntaxText content={content} lang={lang} />
+              <SyntaxText content={contentText} lang={lang} />
             </View>
           )}
-          {!isLoading && !isError && content === null && (
+          {!isLoading && !isError && contentType === 'binary' && (
+            <View style={styles.center}>
+              <Ionicons name="document-lock-outline" size={30} color={COLORS.textMuted} />
+              <Text style={styles.emptyText}>Binary file preview is not supported.</Text>
+            </View>
+          )}
+          {!isLoading && !isError && contentType === 'text' && contentText === '' && (
             <View style={styles.center}>
               <Text style={styles.emptyText}>Empty file.</Text>
             </View>
@@ -155,7 +172,13 @@ export function FileViewer({
         ))}
         <TouchableOpacity
           style={[styles.actionBtn, styles.askBtn]}
-          onPress={() => onAskAI(`Let's look at \`${filePath}\`. `, filePath)}
+          onPress={() => {
+            const snippet =
+              contentType === 'text' && contentText
+                ? contentText.split('\n').slice(0, 120).join('\n').slice(0, 2500)
+                : undefined;
+            onAskAI(`Let's look at \`${filePath}\`. `, { filePath, snippet });
+          }}
         >
           <Ionicons name="sparkles-outline" size={14} color={COLORS.white} />
           <Text style={styles.askBtnText}>Ask AI</Text>

@@ -107,6 +107,13 @@ export interface FileEntry {
   children?: FileEntry[];
 }
 
+export interface FileContentResponse {
+  type: 'text' | 'binary';
+  content: string;
+  diff?: string;
+  patch?: unknown;
+}
+
 // ---------------------------------------------------------------------------
 // Providers / Models
 // ---------------------------------------------------------------------------

@@ -13,6 +13,12 @@ export type ActiveProject =
     resolvedWorktree?: string | null;
   };
 
+export interface ActiveFileContext {
+  filePath: string;
+  sessionId: string | null;
+  snippet?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Shape
 // ---------------------------------------------------------------------------
@@ -36,6 +42,9 @@ interface ConnectionState {
 
   /** Currently selected app-wide project context (server or GitHub repo). */
   activeProject: ActiveProject | null;
+
+  /** Current chat-file context used to keep file-aware prompts persistent. */
+  activeFileContext: ActiveFileContext | null;
 
   /** User-configured directory for git clone operations */
   cloneDirectory: string;
@@ -62,6 +71,8 @@ interface ConnectionState {
   setGitHubProjectBranch: (branch: string) => void;
   setGitHubProjectWorktree: (worktree: string | null) => void;
   clearActiveProject: () => void;
+  setActiveFileContext: (ctx: ActiveFileContext | null) => void;
+  clearActiveFileContext: () => void;
   setCloneDirectory: (dir: string) => void;
   setKeepActiveProject: (keep: boolean) => void;
 
@@ -100,6 +111,7 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
   isOnboardingComplete: false,
   activeSessionId: null,
   activeProject: null,
+  activeFileContext: null,
   cloneDirectory: '~/projects/',
   keepActiveProject: false,
   rememberCredentials: true,
@@ -192,6 +204,14 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
     void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT);
   },
 
+  setActiveFileContext: (ctx) => {
+    set({ activeFileContext: ctx });
+  },
+
+  clearActiveFileContext: () => {
+    set({ activeFileContext: null });
+  },
+
   setCloneDirectory: (dir) => {
     set({ cloneDirectory: dir });
     void SecureStore.setItemAsync(SECURE_STORE_KEYS.CLONE_DIRECTORY, dir);
@@ -253,6 +273,7 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
       isConnected: false,
       activeSessionId: null,
       activeProject: null,
+      activeFileContext: null,
       keepActiveProject: false,
     });
     void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.SERVER_URL);

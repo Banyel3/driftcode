@@ -71,6 +71,7 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
   const activeSessionId = useConnectionStore((s) => s.activeSessionId);
   const activeProject = useConnectionStore((s) => s.activeProject);
   const setActiveSessionId = useConnectionStore((s) => s.setActiveSessionId);
+  const setActiveFileContext = useConnectionStore((s) => s.setActiveFileContext);
   const setGitHubProjectWorktree = useConnectionStore((s) => s.setGitHubProjectWorktree);
   const queryClient = useQueryClient();
   const { projects: serverProjects } = useServerProjects();
@@ -176,7 +177,7 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
   } = useSessionDiff(diffSession?.id ?? null, latestUserMessageId);
 
   const handleAskAI = useCallback(
-    async (message: string, _filePath: string) => {
+    async (message: string, context: { filePath: string; snippet?: string }) => {
       if (!serverUrl || !serverPassword) return;
       setIsCreatingSession(true);
       try {
@@ -193,6 +194,13 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
           setActiveSessionId(sessionId);
           queryClient.removeQueries({ queryKey: messageKeys.session(sessionId) });
         }
+
+        setActiveFileContext({
+          filePath: context.filePath,
+          snippet: context.snippet,
+          sessionId,
+        });
+
         navigation.navigate('Chat', {
           screen: 'Conversation',
           params: { sessionId, initialMessage: message },
@@ -206,7 +214,17 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
         setIsCreatingSession(false);
       }
     },
-    [serverUrl, serverPassword, serverUsername, activeSessionId, rootPath, setActiveSessionId, queryClient, navigation],
+    [
+      serverUrl,
+      serverPassword,
+      serverUsername,
+      activeSessionId,
+      rootPath,
+      setActiveSessionId,
+      setActiveFileContext,
+      queryClient,
+      navigation,
+    ],
   );
 
   // ── File view ─────────────────────────────────────────────────────────────

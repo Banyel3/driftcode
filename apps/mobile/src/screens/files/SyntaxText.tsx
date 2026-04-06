@@ -194,7 +194,8 @@ export const SyntaxText = memo(function SyntaxText({
   maxLines = 2000,
 }: SyntaxTextProps): React.ReactElement {
   const rules = rulesForLang(lang);
-  const lines = content.split('\n');
+  const safeContent = typeof content === 'string' ? content : '';
+  const lines = safeContent.split('\n');
   const visibleLines = lines.slice(0, maxLines);
   const truncated = lines.length > maxLines;
 

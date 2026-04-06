@@ -18,6 +18,7 @@ export type {
   Message,
   SendMessageRequest,
   FileEntry,
+  FileContentResponse,
   ModelInfo,
   ProviderInfo,
   Project,

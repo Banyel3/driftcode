@@ -8,6 +8,7 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { getFileContent, createOpenCodeClient } from '@driftcode/opencode-client';
+import type { FileContentResponse } from '@driftcode/opencode-client';
 import { useConnectionStore } from '../store';
 
 // ---------------------------------------------------------------------------
@@ -21,7 +22,10 @@ export const fileContentKeys = {
 // Hook
 // ---------------------------------------------------------------------------
 export interface UseFileContentResult {
-  content: string | null;
+  contentText: string | null;
+  contentType: 'text' | 'binary' | null;
+  diff: string | null;
+  patch: unknown;
   isLoading: boolean;
   isError: boolean;
   error: Error | null;
@@ -35,11 +39,13 @@ export function useFileContent(
   const serverUsername = useConnectionStore((s) => s.serverUsername);
   const serverPassword = useConnectionStore((s) => s.serverPassword);
 
-  const { data, isLoading, isError, error, refetch } = useQuery<string, Error>({
+  const { data, isLoading, isError, error, refetch } = useQuery<FileContentResponse, Error>({
     queryKey: fileContentKeys.file(filePath ?? ''),
     enabled: filePath !== null && serverUrl !== null && serverPassword !== null,
     queryFn: async () => {
-      if (!filePath || !serverUrl || !serverPassword) return '';
+      if (!filePath || !serverUrl || !serverPassword) {
+        return { type: 'text', content: '' } as FileContentResponse;
+      }
       const client = createOpenCodeClient({
         serverUrl,
         username: serverUsername,
@@ -52,7 +58,10 @@ export function useFileContent(
   });
 
   return {
-    content: data ?? null,
+    contentText: data?.content ?? null,
+    contentType: data?.type ?? null,
+    diff: data?.diff ?? null,
+    patch: data?.patch,
     isLoading,
     isError,
     error: error ?? null,
