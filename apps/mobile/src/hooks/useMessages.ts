@@ -119,7 +119,13 @@ function readMessageRemovedPayload(event: OpenCodeEvent): { sessionId: string; m
 
 function readPartUpdatedPayload(
   event: OpenCodeEvent,
-): { sessionId: string; messageId: string; part: MessagePart | null; delta: string | null } | null {
+): {
+  sessionId: string;
+  messageId: string;
+  part: MessagePart | null;
+  delta: string | null;
+  rawPartType: string | null;
+} | null {
   if (event.type !== 'message.part.updated') return null;
   const props = (event as { properties?: unknown }).properties;
   if (!props || typeof props !== 'object') return null;
@@ -130,6 +136,7 @@ function readPartUpdatedPayload(
     sessionId?: unknown;
     messageID?: unknown;
     messageId?: unknown;
+    type?: unknown;
   };
   const sessionId = rawPart.sessionID ?? rawPart.sessionId;
   const messageId = rawPart.messageID ?? rawPart.messageId;
@@ -140,6 +147,7 @@ function readPartUpdatedPayload(
     messageId,
     part: normalizeIncomingPart(typed.part),
     delta: typeof typed.delta === 'string' ? typed.delta : null,
+    rawPartType: typeof rawPart.type === 'string' ? rawPart.type : null,
   };
 }
 
@@ -152,13 +160,21 @@ function readPartRemovedPayload(event: OpenCodeEvent): { sessionId: string; mess
   return { sessionId: typed.sessionID, messageId: typed.messageID };
 }
 
-function applyPartDelta(message: Message, part: MessagePart | null, delta: string | null): Message {
+function applyPartDelta(
+  message: Message,
+  part: MessagePart | null,
+  delta: string | null,
+  rawPartType: string | null,
+): Message {
   if (!part && !delta) return message;
 
   const nextParts = [...message.parts];
 
   if (delta) {
-    const targetType = part?.type === 'reasoning' ? 'reasoning' : 'text';
+    const targetType =
+      part?.type === 'reasoning' || rawPartType === 'reasoning'
+        ? 'reasoning'
+        : 'text';
     const lastMatchIndex = [...nextParts]
       .reverse()
       .findIndex((item) => item.type === targetType);
@@ -174,7 +190,7 @@ function applyPartDelta(message: Message, part: MessagePart | null, delta: strin
       } else if (current.type === 'reasoning') {
         nextParts[index] = {
           ...current,
-          reasoning: current.reasoning + delta,
+          reasoning: `${current.reasoning}${delta}`,
         };
       }
     } else if (targetType === 'reasoning') {
@@ -354,11 +370,17 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
               },
               partUpdated.part,
               partUpdated.delta,
+              partUpdated.rawPartType,
             );
             return dedupeAndSort([...list, created]);
           }
           const next = [...list];
-          next[idx] = applyPartDelta(next[idx], partUpdated.part, partUpdated.delta);
+          next[idx] = applyPartDelta(
+            next[idx],
+            partUpdated.part,
+            partUpdated.delta,
+            partUpdated.rawPartType,
+          );
           return dedupeAndSort(next);
         });
         return;

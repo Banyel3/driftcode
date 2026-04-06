@@ -53,7 +53,6 @@ export function normalizeIncomingPart(part: unknown): MessagePart | null {
         : typeof p.text === 'string'
           ? p.text
           : '';
-    if (reasoning.trim().length === 0) return null;
     return { type: 'reasoning', reasoning };
   }
 
