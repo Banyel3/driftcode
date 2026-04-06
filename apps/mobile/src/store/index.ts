@@ -40,6 +40,9 @@ interface ConnectionState {
   /** User-configured directory for git clone operations */
   cloneDirectory: string;
 
+  /** Persist active project between app launches when enabled. */
+  keepActiveProject: boolean;
+
   /**
    * When true the Connect screen pre-fills URL + password with the last-used
    * values and credentials are persisted to SecureStore on connect.
@@ -60,6 +63,7 @@ interface ConnectionState {
   setGitHubProjectWorktree: (worktree: string | null) => void;
   clearActiveProject: () => void;
   setCloneDirectory: (dir: string) => void;
+  setKeepActiveProject: (keep: boolean) => void;
 
   /** Marks onboarding as done and persists the flag to SecureStore */
   setOnboardingComplete: () => void;
@@ -97,6 +101,7 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
   activeSessionId: null,
   activeProject: null,
   cloneDirectory: '~/projects/',
+  keepActiveProject: false,
   rememberCredentials: true,
 
   setServerUrl: (url) => {
@@ -138,8 +143,11 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
 
   setActiveProject: (project) => {
     set({ activeProject: project });
-    if (project) {
-      void SecureStore.setItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT, JSON.stringify(project));
+    if (get().keepActiveProject && project) {
+      void SecureStore.setItemAsync(
+        SECURE_STORE_KEYS.ACTIVE_PROJECT,
+        JSON.stringify(project),
+      );
     } else {
       void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT);
     }
@@ -154,7 +162,12 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
       selectedBranch: branch,
     };
     set({ activeProject: next });
-    void SecureStore.setItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT, JSON.stringify(next));
+    if (get().keepActiveProject) {
+      void SecureStore.setItemAsync(
+        SECURE_STORE_KEYS.ACTIVE_PROJECT,
+        JSON.stringify(next),
+      );
+    }
   },
 
   setGitHubProjectWorktree: (worktree) => {
@@ -166,7 +179,12 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
       resolvedWorktree: worktree,
     };
     set({ activeProject: next });
-    void SecureStore.setItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT, JSON.stringify(next));
+    if (get().keepActiveProject) {
+      void SecureStore.setItemAsync(
+        SECURE_STORE_KEYS.ACTIVE_PROJECT,
+        JSON.stringify(next),
+      );
+    }
   },
 
   clearActiveProject: () => {
@@ -177,6 +195,26 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
   setCloneDirectory: (dir) => {
     set({ cloneDirectory: dir });
     void SecureStore.setItemAsync(SECURE_STORE_KEYS.CLONE_DIRECTORY, dir);
+  },
+
+  setKeepActiveProject: (keep) => {
+    set({ keepActiveProject: keep });
+    void SecureStore.setItemAsync(
+      SECURE_STORE_KEYS.KEEP_ACTIVE_PROJECT,
+      keep ? 'true' : 'false',
+    );
+
+    if (!keep) {
+      void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT);
+    } else {
+      const activeProject = get().activeProject;
+      if (activeProject) {
+        void SecureStore.setItemAsync(
+          SECURE_STORE_KEYS.ACTIVE_PROJECT,
+          JSON.stringify(activeProject),
+        );
+      }
+    }
   },
 
   setOnboardingComplete: () => {
@@ -215,11 +253,13 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
       isConnected: false,
       activeSessionId: null,
       activeProject: null,
+      keepActiveProject: false,
     });
     void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.SERVER_URL);
     void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.SERVER_PASSWORD);
     void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.GITHUB_TOKEN);
     void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT);
+    void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.KEEP_ACTIVE_PROJECT);
   },
 
   hydrate: async () => {
@@ -232,6 +272,7 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
       onboardingDone,
       rememberRaw,
       activeProjectRaw,
+      keepActiveProjectRaw,
     ] = await Promise.all([
       SecureStore.getItemAsync(SECURE_STORE_KEYS.SERVER_URL),
       SecureStore.getItemAsync(SECURE_STORE_KEYS.SERVER_USERNAME),
@@ -241,13 +282,19 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
       SecureStore.getItemAsync(SECURE_STORE_KEYS.ONBOARDING_COMPLETE),
       SecureStore.getItemAsync(SECURE_STORE_KEYS.REMEMBER_CREDENTIALS),
       SecureStore.getItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT),
+      SecureStore.getItemAsync(SECURE_STORE_KEYS.KEEP_ACTIVE_PROJECT),
     ]);
 
     // rememberRaw is null on first launch (key not yet written) — default true.
     const rememberCredentials = rememberRaw === null ? true : rememberRaw === 'true';
+    const keepActiveProject = keepActiveProjectRaw === 'true';
+
+    if (!keepActiveProject && activeProjectRaw) {
+      void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT);
+    }
 
     let activeProject: ActiveProject | null = null;
-    if (activeProjectRaw) {
+    if (keepActiveProject && activeProjectRaw) {
       try {
         const parsed = JSON.parse(activeProjectRaw) as unknown;
         if (
@@ -271,6 +318,7 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
       githubToken,
       isOnboardingComplete: onboardingDone === 'true',
       rememberCredentials,
+      keepActiveProject,
       activeProject,
       ...(cloneDir ? { cloneDirectory: cloneDir } : {}),
     });

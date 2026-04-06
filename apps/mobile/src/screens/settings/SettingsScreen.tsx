@@ -23,6 +23,7 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -480,6 +481,8 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
   const isConnected = useConnectionStore((s) => s.isConnected);
   const cloneDirectory = useConnectionStore((s) => s.cloneDirectory);
   const setCloneDirectory = useConnectionStore((s) => s.setCloneDirectory);
+  const keepActiveProject = useConnectionStore((s) => s.keepActiveProject);
+  const setKeepActiveProject = useConnectionStore((s) => s.setKeepActiveProject);
   const clearConnection = useConnectionStore((s) => s.clearConnection);
 
   // ── Preferred model (stored per-session for now; global preference) ──────
@@ -716,6 +719,19 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
             label="Clone Directory"
             value={cloneDirectory}
             onPress={() => setCloneDirModalVisible(true)}
+          />
+          <Divider />
+          <Row
+            icon="bookmark-outline"
+            label="Keep Active Project"
+            rightElement={
+              <Switch
+                value={keepActiveProject}
+                onValueChange={setKeepActiveProject}
+                trackColor={{ false: COLORS.border, true: `${COLORS.primary}66` }}
+                thumbColor={keepActiveProject ? COLORS.primary : COLORS.surfaceElevated}
+              />
+            }
           />
         </View>
 

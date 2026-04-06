@@ -15,6 +15,8 @@ export interface HealthResponse {
 // ---------------------------------------------------------------------------
 export interface Session {
   id: string;
+  projectID?: string;
+  directory?: string | null;
   title?: string | null;
   parentId?: string | null;
   model?: string | null;
@@ -24,6 +26,10 @@ export interface Session {
   worktree?: string | null;
   createdAt: number;
   updatedAt: number;
+  time?: {
+    created: number;
+    updated: number;
+  };
 }
 
 export interface CreateSessionRequest {
@@ -93,8 +99,11 @@ export interface SendMessageRequest {
 // Files
 // ---------------------------------------------------------------------------
 export interface FileEntry {
+  name?: string;
   path: string;
+  absolute?: string;
   type: 'file' | 'directory';
+  ignored?: boolean;
   children?: FileEntry[];
 }
 

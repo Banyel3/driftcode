@@ -140,7 +140,7 @@ export function SessionsScreen({ navigation }: SessionListScreenProps) {
           onCreate={handleCreate}
           scopeMode={scopeMode}
           onChangeScope={setScopeMode}
-          hasProjectScope={activeWorktree !== null}
+          hasProjectScope={activeProject !== null}
         />
         <View style={styles.center}>
           <Ionicons name="warning-outline" size={48} color={COLORS.error} />
@@ -161,7 +161,7 @@ export function SessionsScreen({ navigation }: SessionListScreenProps) {
         onCreate={handleCreate}
         scopeMode={scopeMode}
         onChangeScope={setScopeMode}
-        hasProjectScope={activeWorktree !== null}
+        hasProjectScope={activeProject !== null}
       />
 
       {isLoading ? (
@@ -191,7 +191,7 @@ export function SessionsScreen({ navigation }: SessionListScreenProps) {
               />
               <Text style={styles.emptyTitle}>No sessions yet</Text>
               <Text style={styles.emptyBody}>
-                {activeWorktree !== null && scopeMode === 'project'
+                {activeProject !== null && scopeMode === 'project'
                   ? 'No sessions in this project yet. Tap + to start one.'
                   : 'Tap the + button to start a new AI coding session.'}
               </Text>

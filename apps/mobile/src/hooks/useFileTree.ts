@@ -10,6 +10,61 @@ import { listFiles, createOpenCodeClient } from '@driftcode/opencode-client';
 import type { FileEntry } from '@driftcode/opencode-client';
 import { useConnectionStore } from '../store';
 
+function normalizeRawEntry(entry: unknown): FileEntry | null {
+  if (typeof entry === 'string') {
+    const trimmed = entry.trim();
+    if (!trimmed) return null;
+    const isDir = trimmed.endsWith('/');
+    const path = isDir ? trimmed.replace(/\/+$/, '') : trimmed;
+    return {
+      path,
+      type: isDir ? 'directory' : 'file',
+      name: path.split('/').filter(Boolean).pop() ?? path,
+    };
+  }
+
+  if (typeof entry !== 'object' || entry === null) return null;
+
+  const candidate = entry as {
+    name?: unknown;
+    path?: unknown;
+    absolute?: unknown;
+    type?: unknown;
+    kind?: unknown;
+    ignored?: unknown;
+  };
+
+  const typeRaw =
+    candidate.type === 'file' || candidate.type === 'directory'
+      ? candidate.type
+      : candidate.kind === 'file' || candidate.kind === 'directory'
+        ? candidate.kind
+        : null;
+
+  const pathRaw =
+    typeof candidate.path === 'string'
+      ? candidate.path
+      : typeof candidate.absolute === 'string'
+        ? candidate.absolute
+        : typeof candidate.name === 'string'
+          ? candidate.name
+          : null;
+
+  if (!pathRaw || !typeRaw) return null;
+
+  const normalizedPath = pathRaw.replace(/\/+$/, '') || pathRaw;
+  return {
+    path: normalizedPath,
+    type: typeRaw,
+    name:
+      typeof candidate.name === 'string'
+        ? candidate.name
+        : normalizedPath.split('/').filter(Boolean).pop() ?? normalizedPath,
+    absolute: typeof candidate.absolute === 'string' ? candidate.absolute : undefined,
+    ignored: typeof candidate.ignored === 'boolean' ? candidate.ignored : undefined,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Query key
 // ---------------------------------------------------------------------------
@@ -45,12 +100,16 @@ export function useFileTree(dirPath: string, enabled = true): UseFileTreeResult 
       });
       const raw = await listFiles(client, dirPath);
       const entries: FileEntry[] = Array.isArray(raw)
-        ? raw.filter((e): e is FileEntry => e != null && typeof e.path === 'string')
+        ? raw
+            .map((entry) => normalizeRawEntry(entry))
+            .filter((entry): entry is FileEntry => entry !== null)
         : [];
       // Sort: directories first, then files, both alphabetically.
       return [...entries].sort((a, b) => {
         if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
-        return a.path.localeCompare(b.path);
+        const aName = a.name ?? a.path;
+        const bName = b.name ?? b.path;
+        return aName.localeCompare(bName);
       });
     },
     staleTime: 30_000,

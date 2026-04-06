@@ -24,6 +24,7 @@ export function getProjectWorktree(project: Project): string | null {
 
 export function getSessionWorktree(session: Session): string | null {
   const candidate =
+    (session as { directory?: string | null }).directory ??
     (session as { worktree?: string | null }).worktree ??
     (session as { path?: string | null }).path ??
     null;
@@ -61,6 +62,10 @@ export function sessionMatchesActiveProject(
   if (!sessionPath) return false;
 
   if (activeProject.kind === 'server') {
+    const sessionProjectID = (session as { projectID?: string }).projectID;
+    if (sessionProjectID && activeProject.project.id) {
+      return sessionProjectID === activeProject.project.id;
+    }
     return pathsMatch(sessionPath, getProjectWorktree(activeProject.project));
   }
 

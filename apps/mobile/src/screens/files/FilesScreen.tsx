@@ -93,6 +93,16 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
   const routeFilePath = route.params?.filePath ?? null;
   const [selectedFile, setSelectedFile] = useState<string | null>(routeFilePath);
 
+  const resolveFilePath = useCallback(
+    (filePath: string) => {
+      if (!filePath) return filePath;
+      if (filePath.startsWith('/')) return filePath;
+      if (!rootPath) return filePath;
+      return `${rootPath.replace(/\/+$/, '')}/${filePath.replace(/^\/+/, '')}`;
+    },
+    [rootPath],
+  );
+
   // If the route param changes (e.g. deep-link), open that file.
   useEffect(() => {
     if (routeFilePath) setSelectedFile(routeFilePath);
@@ -267,7 +277,7 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
               <TouchableOpacity
                 key={diff.file}
                 style={styles.diffRow}
-                onPress={() => setSelectedFile(diff.file)}
+                onPress={() => setSelectedFile(resolveFilePath(diff.file))}
                 activeOpacity={0.7}
               >
                 <Ionicons name="document-text-outline" size={16} color={COLORS.textSecondary} />
@@ -323,7 +333,7 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
               entry={entry}
               depth={0}
               selectedPath={selectedFile}
-              onSelectFile={setSelectedFile}
+              onSelectFile={(filePath) => setSelectedFile(resolveFilePath(filePath))}
             />
           ))}
           {/* Bottom padding so last item isn't cut off */}
