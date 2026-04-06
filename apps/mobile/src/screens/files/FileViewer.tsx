@@ -57,13 +57,15 @@ const ACTIONS: ActionBtn[] = [
 // Component
 // ---------------------------------------------------------------------------
 interface FileViewerProps {
-  filePath: string;
+  queryPath: string;
+  displayPath: string;
   onAskAI: (message: string, context: { filePath: string; snippet?: string }) => void;
   onClose?: () => void;
 }
 
 export function FileViewer({
-  filePath,
+  queryPath,
+  displayPath,
   onAskAI,
   onClose,
 }: FileViewerProps): React.ReactElement {
@@ -76,11 +78,11 @@ export function FileViewer({
     isError,
     error,
     refresh,
-  } = useFileContent(filePath);
-  const lang = detectLang(filePath);
+  } = useFileContent(queryPath);
+  const lang = detectLang(displayPath);
 
   // Basename for the header
-  const filename = basenameSafe(filePath) || filePath;
+  const filename = basenameSafe(displayPath) || displayPath;
 
   const renderedContent = useMemo(() => {
     if (contentType !== 'text') return null;
@@ -104,9 +106,9 @@ export function FileViewer({
         contentType === 'text' && contentText
           ? contentText.split('\n').slice(0, 120).join('\n').slice(0, 2500)
           : undefined;
-      onAskAI(action.buildMessage(filePath), { filePath, snippet });
+      onAskAI(action.buildMessage(displayPath), { filePath: displayPath, snippet });
     },
-    [filePath, onAskAI, contentType, contentText],
+    [displayPath, onAskAI, contentType, contentText],
   );
 
   return (
@@ -215,7 +217,7 @@ export function FileViewer({
               contentType === 'text' && contentText
                 ? contentText.split('\n').slice(0, 120).join('\n').slice(0, 2500)
                 : undefined;
-            onAskAI(`Let's look at \`${filePath}\`. `, { filePath, snippet });
+            onAskAI(`Let's look at \`${displayPath}\`. `, { filePath: displayPath, snippet });
           }}
         >
           <Ionicons name="sparkles-outline" size={14} color={COLORS.white} />

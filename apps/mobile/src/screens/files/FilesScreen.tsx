@@ -109,7 +109,12 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
 
   // ── File selection ────────────────────────────────────────────────────────
   const routeFilePath = route.params?.filePath ?? null;
-  const [selectedFile, setSelectedFile] = useState<string | null>(routeFilePath);
+  const [selectedFile, setSelectedFile] = useState<{ queryPath: string; displayPath: string } | null>(
+    routeFilePath
+      ? { queryPath: routeFilePath, displayPath: routeFilePath }
+      : null,
+  );
+  const selectedQueryPath = selectedFile?.queryPath ?? null;
 
   const resolveFilePath = useCallback(
     (filePath: string) => {
@@ -124,7 +129,12 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
 
   // If the route param changes (e.g. deep-link), open that file.
   useEffect(() => {
-    if (routeFilePath) setSelectedFile(routeFilePath);
+    if (routeFilePath) {
+      setSelectedFile({
+        queryPath: routeFilePath,
+        displayPath: routeFilePath,
+      });
+    }
   }, [routeFilePath]);
 
   useEffect(() => {
@@ -238,7 +248,8 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
           </View>
         )}
         <FileViewer
-          filePath={selectedFile}
+          queryPath={selectedFile.queryPath}
+          displayPath={selectedFile.displayPath}
           onAskAI={handleAskAI}
           onClose={() => setSelectedFile(null)}
         />
@@ -329,7 +340,11 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
               <TouchableOpacity
                 key={diff.file}
                 style={styles.diffRow}
-                onPress={() => setSelectedFile(resolveFilePath(diff.file))}
+                onPress={() =>
+                  setSelectedFile({
+                    queryPath: diff.file,
+                    displayPath: resolveFilePath(diff.file),
+                  })}
                 activeOpacity={0.7}
               >
                 <Ionicons name="document-text-outline" size={16} color={COLORS.textSecondary} />
@@ -384,8 +399,12 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
               key={entry.path}
               entry={entry}
               depth={0}
-              selectedPath={selectedFile}
-              onSelectFile={(filePath) => setSelectedFile(resolveFilePath(filePath))}
+              selectedPath={selectedQueryPath}
+              onSelectFile={(filePath) =>
+                setSelectedFile({
+                  queryPath: filePath,
+                  displayPath: resolveFilePath(filePath),
+                })}
             />
           ))}
           {/* Bottom padding so last item isn't cut off */}
