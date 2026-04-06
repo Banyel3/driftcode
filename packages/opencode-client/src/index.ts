@@ -34,6 +34,7 @@ export type {
   MessageRemovedEvent,
   MessagePartUpdatedEvent,
   MessagePartRemovedEvent,
+  MessagePartDeltaEvent,
   ReloadEvent,
   APIErrorBody,
 } from './types';

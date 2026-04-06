@@ -40,10 +40,15 @@ export function normalizeIncomingPart(part: unknown): MessagePart | null {
   if (!part || typeof part !== 'object') return null;
   const p = part as Record<string, unknown>;
   const type = p.type;
+  const partId = typeof p.id === 'string' ? p.id : undefined;
 
   if (type === 'text') {
     const text = typeof p.text === 'string' ? p.text : '';
-    return { type: 'text', text };
+    return {
+      type: 'text',
+      text,
+      ...(partId ? { __partId: partId } : {}),
+    } as MessagePart;
   }
 
   if (type === 'reasoning') {
@@ -53,7 +58,11 @@ export function normalizeIncomingPart(part: unknown): MessagePart | null {
         : typeof p.text === 'string'
           ? p.text
           : '';
-    return { type: 'reasoning', reasoning };
+    return {
+      type: 'reasoning',
+      reasoning,
+      ...(partId ? { __partId: partId } : {}),
+    } as MessagePart;
   }
 
   if (type === 'tool-invocation') {
@@ -62,7 +71,8 @@ export function normalizeIncomingPart(part: unknown): MessagePart | null {
     return {
       type: 'tool-invocation',
       toolInvocation: toolInvocation as ToolInvocation,
-    };
+      ...(partId ? { __partId: partId } : {}),
+    } as MessagePart;
   }
 
   if (type === 'tool') {
@@ -109,7 +119,8 @@ export function normalizeIncomingPart(part: unknown): MessagePart | null {
         },
         ...(result !== undefined ? { result } : {}),
       },
-    };
+      ...(partId ? { __partId: partId } : {}),
+    } as MessagePart;
   }
 
   if (type === 'file') {
@@ -125,11 +136,19 @@ export function normalizeIncomingPart(part: unknown): MessagePart | null {
         : typeof p.url === 'string'
           ? p.url
           : '';
-    return { type: 'file', mimeType, data };
+    return {
+      type: 'file',
+      mimeType,
+      data,
+      ...(partId ? { __partId: partId } : {}),
+    } as MessagePart;
   }
 
   if (type === 'step-start') {
-    return { type: 'step-start' };
+    return {
+      type: 'step-start',
+      ...(partId ? { __partId: partId } : {}),
+    } as MessagePart;
   }
 
   return null;

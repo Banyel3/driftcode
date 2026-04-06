@@ -173,6 +173,7 @@ export type EventType =
   | 'message.removed'
   | 'message.part.updated'
   | 'message.part.removed'
+  | 'message.part.delta'
   | 'reload';
 
 export interface SessionUpdatedEvent {
@@ -231,6 +232,16 @@ export interface MessagePartRemovedEvent {
   };
 }
 
+export interface MessagePartDeltaEvent {
+  type: 'message.part.delta';
+  properties: {
+    messageID: string;
+    partID: string;
+    field: string;
+    delta: string;
+  };
+}
+
 export interface ReloadEvent {
   type: 'reload';
 }
@@ -243,6 +254,7 @@ export type OpenCodeEvent =
   | MessageRemovedEvent
   | MessagePartUpdatedEvent
   | MessagePartRemovedEvent
+  | MessagePartDeltaEvent
   | ReloadEvent;
 
 // ---------------------------------------------------------------------------

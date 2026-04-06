@@ -125,6 +125,7 @@ function readPartUpdatedPayload(
   part: MessagePart | null;
   delta: string | null;
   rawPartType: string | null;
+  partId: string | null;
 } | null {
   if (event.type !== 'message.part.updated') return null;
   const props = (event as { properties?: unknown }).properties;
@@ -148,16 +149,58 @@ function readPartUpdatedPayload(
     part: normalizeIncomingPart(typed.part),
     delta: typeof typed.delta === 'string' ? typed.delta : null,
     rawPartType: typeof rawPart.type === 'string' ? rawPart.type : null,
+    partId: typeof (rawPart as { id?: unknown }).id === 'string' ? (rawPart as { id: string }).id : null,
   };
 }
 
-function readPartRemovedPayload(event: OpenCodeEvent): { sessionId: string; messageId: string } | null {
+function readPartRemovedPayload(
+  event: OpenCodeEvent,
+): { sessionId: string; messageId: string; partId: string } | null {
   if (event.type !== 'message.part.removed') return null;
   const props = (event as { properties?: unknown }).properties;
   if (!props || typeof props !== 'object') return null;
-  const typed = props as { sessionID?: unknown; messageID?: unknown };
-  if (typeof typed.sessionID !== 'string' || typeof typed.messageID !== 'string') return null;
-  return { sessionId: typed.sessionID, messageId: typed.messageID };
+  const typed = props as { sessionID?: unknown; messageID?: unknown; partID?: unknown };
+  if (
+    typeof typed.sessionID !== 'string' ||
+    typeof typed.messageID !== 'string' ||
+    typeof typed.partID !== 'string'
+  ) {
+    return null;
+  }
+  return { sessionId: typed.sessionID, messageId: typed.messageID, partId: typed.partID };
+}
+
+function readPartDeltaPayload(
+  event: OpenCodeEvent,
+): { messageId: string; partId: string; field: string; delta: string } | null {
+  if (event.type !== 'message.part.delta') return null;
+  const props = (event as { properties?: unknown }).properties;
+  if (!props || typeof props !== 'object') return null;
+  const typed = props as {
+    messageID?: unknown;
+    partID?: unknown;
+    field?: unknown;
+    delta?: unknown;
+  };
+  if (
+    typeof typed.messageID !== 'string' ||
+    typeof typed.partID !== 'string' ||
+    typeof typed.field !== 'string' ||
+    typeof typed.delta !== 'string'
+  ) {
+    return null;
+  }
+  return {
+    messageId: typed.messageID,
+    partId: typed.partID,
+    field: typed.field,
+    delta: typed.delta,
+  };
+}
+
+function getPartId(part: MessagePart): string | null {
+  const id = (part as { __partId?: unknown }).__partId;
+  return typeof id === 'string' ? id : null;
 }
 
 function applyPartDelta(
@@ -165,12 +208,35 @@ function applyPartDelta(
   part: MessagePart | null,
   delta: string | null,
   rawPartType: string | null,
+  partId: string | null,
+  deltaField: string | null,
 ): Message {
   if (!part && !delta) return message;
 
   const nextParts = [...message.parts];
 
   if (delta) {
+    if (partId) {
+      const byIdIndex = nextParts.findIndex((item) => getPartId(item) === partId);
+      if (byIdIndex >= 0) {
+        const target = nextParts[byIdIndex];
+        if (target.type === 'text' && (deltaField === 'text' || deltaField === 'output')) {
+          nextParts[byIdIndex] = {
+            ...target,
+            text: target.text + delta,
+          };
+          return { ...message, parts: nextParts };
+        }
+        if (target.type === 'reasoning' && (deltaField === 'text' || deltaField === 'reasoning')) {
+          nextParts[byIdIndex] = {
+            ...target,
+            reasoning: target.reasoning + delta,
+          };
+          return { ...message, parts: nextParts };
+        }
+      }
+    }
+
     const targetType =
       part?.type === 'reasoning' || rawPartType === 'reasoning'
         ? 'reasoning'
@@ -211,6 +277,13 @@ function applyPartDelta(
       if (idx >= 0) {
         nextParts[idx] = part;
       } else {
+        nextParts.push(part);
+      }
+    } else if (partId) {
+      const idx = nextParts.findIndex((item) => getPartId(item) === partId);
+      if (idx >= 0) {
+        nextParts[idx] = part;
+      } else if (!delta) {
         nextParts.push(part);
       }
     } else if (!delta) {
@@ -371,6 +444,8 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
               partUpdated.part,
               partUpdated.delta,
               partUpdated.rawPartType,
+              partUpdated.partId,
+              null,
             );
             return dedupeAndSort([...list, created]);
           }
@@ -380,6 +455,8 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
             partUpdated.part,
             partUpdated.delta,
             partUpdated.rawPartType,
+            partUpdated.partId,
+            null,
           );
           return dedupeAndSort(next);
         });
@@ -396,10 +473,39 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
           if (idx < 0) return list;
           const next = [...list];
           const target = next[idx];
+          const partIndex = target.parts.findIndex((part) => getPartId(part) === partRemoved.partId);
           next[idx] = {
             ...target,
-            parts: target.parts.slice(0, Math.max(0, target.parts.length - 1)),
+            parts:
+              partIndex >= 0
+                ? target.parts.filter((_, index) => index !== partIndex)
+                : target.parts,
           };
+          return dedupeAndSort(next);
+        });
+        return;
+      }
+
+      const partDelta = readPartDeltaPayload(event);
+      if (partDelta) {
+        if (!sessionIdRef.current) return;
+        lastPartEventAtRef.current = Date.now();
+        queryClient.setQueryData<Message[]>(messageKeys.session(sessionIdRef.current), (prev) => {
+          const list = prev ?? [];
+          const idx = list.findIndex((message) => message.id === partDelta.messageId);
+          if (idx < 0) {
+            triggerReconcile(250);
+            return list;
+          }
+          const next = [...list];
+          next[idx] = applyPartDelta(
+            next[idx],
+            null,
+            partDelta.delta,
+            null,
+            partDelta.partId,
+            partDelta.field,
+          );
           return dedupeAndSort(next);
         });
       }
