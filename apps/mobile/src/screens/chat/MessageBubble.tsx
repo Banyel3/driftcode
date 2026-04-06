@@ -116,7 +116,8 @@ export function TypingIndicator(): React.ReactElement {
         <Text style={styles.avatarText}>AI</Text>
       </View>
       <View style={[styles.bubble, styles.assistantBubble, styles.typingBubble]}>
-        <Text style={styles.typingDots}>{'  •  •  •'}</Text>
+        <Text style={styles.typingLabel}>AI is typing…</Text>
+        <Text style={styles.typingDots}>{'• • •'}</Text>
       </View>
     </View>
   );
@@ -171,11 +172,17 @@ const styles = StyleSheet.create({
   },
   typingBubble: {
     paddingVertical: SPACING.xs,
+    gap: 2,
+  },
+  typingLabel: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textMuted,
+    fontWeight: '600',
   },
   typingDots: {
     fontSize: FONT_SIZE.md,
     color: COLORS.textSecondary,
-    letterSpacing: 2,
+    letterSpacing: 1.5,
   },
   stepSeparator: {
     paddingVertical: SPACING.xs,

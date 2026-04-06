@@ -18,6 +18,28 @@ import type { Message, MessagePart, ToolInvocationPart, TextPart, OpenCodeEvent 
 import { useConnectionStore } from '../store';
 import { useSSEStream } from './useSSEStream';
 
+function messageTimestamp(msg: Message): number {
+  const createdAt = (msg as { createdAt?: unknown }).createdAt;
+  if (typeof createdAt === 'number' && Number.isFinite(createdAt)) {
+    return createdAt;
+  }
+
+  const timeCreated = (msg as { time?: { created?: unknown } }).time?.created;
+  if (typeof timeCreated === 'number' && Number.isFinite(timeCreated)) {
+    return timeCreated;
+  }
+
+  return 0;
+}
+
+function normalizeMessage(msg: Message): Message {
+  const ts = messageTimestamp(msg);
+  return {
+    ...msg,
+    createdAt: ts,
+  };
+}
+
 function toMessageKey(msg: Message, fallbackIndex: number): string {
   if (typeof msg.id === 'string' && msg.id.trim().length > 0) {
     return msg.id;
@@ -29,18 +51,74 @@ function toMessageKey(msg: Message, fallbackIndex: number): string {
       ? (firstPart as TextPart).text.slice(0, 24)
       : firstPart?.type ?? 'none';
 
-  return `synthetic-${msg.role}-${msg.createdAt}-${seed}-${fallbackIndex}`;
+  return `synthetic-${msg.role}-${messageTimestamp(msg)}-${seed}-${fallbackIndex}`;
 }
 
 function normalizeMessages(messages: Message[]): Message[] {
-  if (messages.length <= 1) return messages;
+  if (messages.length <= 1) return messages.map(normalizeMessage);
   const deduped = new Map<string, Message>();
   for (let i = 0; i < messages.length; i += 1) {
-    const msg = messages[i];
+    const msg = normalizeMessage(messages[i]);
     const id = toMessageKey(msg, i);
     deduped.set(id, { ...msg, id });
   }
-  return Array.from(deduped.values()).sort((a, b) => a.createdAt - b.createdAt);
+  return Array.from(deduped.values()).sort((a, b) => {
+    const ts = messageTimestamp(a) - messageTimestamp(b);
+    if (ts !== 0) return ts;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function readMessageUpdatedPayload(event: OpenCodeEvent): { sessionId: string; message: Message } | null {
+  if (event.type !== 'message.updated') return null;
+
+  const props = (event as { properties?: unknown }).properties;
+  if (!props || typeof props !== 'object') return null;
+
+  const typed = props as {
+    sessionId?: unknown;
+    sessionID?: unknown;
+    message?: unknown;
+    info?: unknown;
+  };
+
+  const sessionIdCandidate = typed.sessionId ?? typed.sessionID;
+  const messageCandidate = typed.message ?? typed.info;
+
+  if (typeof sessionIdCandidate !== 'string' || !messageCandidate || typeof messageCandidate !== 'object') {
+    return null;
+  }
+
+  return {
+    sessionId: sessionIdCandidate,
+    message: normalizeMessage(messageCandidate as Message),
+  };
+}
+
+function readMessageDeletedPayload(event: OpenCodeEvent): { sessionId: string; messageId: string } | null {
+  if (event.type !== 'message.deleted') return null;
+
+  const props = (event as { properties?: unknown }).properties;
+  if (!props || typeof props !== 'object') return null;
+
+  const typed = props as {
+    sessionId?: unknown;
+    sessionID?: unknown;
+    messageId?: unknown;
+    messageID?: unknown;
+  };
+
+  const sessionIdCandidate = typed.sessionId ?? typed.sessionID;
+  const messageIdCandidate = typed.messageId ?? typed.messageID;
+
+  if (typeof sessionIdCandidate !== 'string' || typeof messageIdCandidate !== 'string') {
+    return null;
+  }
+
+  return {
+    sessionId: sessionIdCandidate,
+    messageId: messageIdCandidate,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -103,8 +181,9 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
 
   const handleEvent = useCallback(
     (event: OpenCodeEvent) => {
-      if (event.type === 'message.updated') {
-        const { sessionId: evtSession, message } = event.properties;
+      const updatedPayload = readMessageUpdatedPayload(event);
+      if (updatedPayload) {
+        const { sessionId: evtSession, message } = updatedPayload;
         if (evtSession !== sessionIdRef.current) return;
 
         queryClient.setQueryData<Message[]>(
@@ -126,8 +205,9 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
         );
       }
 
-      if (event.type === 'message.deleted') {
-        const { sessionId: evtSession, messageId } = event.properties;
+      const deletedPayload = readMessageDeletedPayload(event);
+      if (deletedPayload) {
+        const { sessionId: evtSession, messageId } = deletedPayload;
         if (evtSession !== sessionIdRef.current) return;
 
         queryClient.setQueryData<Message[]>(
@@ -175,8 +255,13 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
     ) ??
       true) && (lastMsg?.parts.length ?? 0) > 0;
 
-  const isStreaming =
+  const assistantStreaming =
     lastMsg?.role === 'assistant' && (hasNoText || hasPartialToolCall);
+
+  const awaitingAssistant =
+    lastMsg?.role === 'user' && Date.now() - messageTimestamp(lastMsg) < 120_000;
+
+  const isStreaming = assistantStreaming || awaitingAssistant;
 
   return {
     messages,
