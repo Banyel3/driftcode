@@ -170,6 +170,7 @@ export type EventType =
   | 'session.deleted'
   | 'message.updated'
   | 'message.deleted'
+  | 'message.removed'
   | 'reload';
 
 export interface SessionUpdatedEvent {
@@ -184,10 +185,15 @@ export interface SessionDeletedEvent {
 
 export interface MessageUpdatedEvent {
   type: 'message.updated';
-  properties: {
-    sessionId: string;
-    message: Message;
-  };
+  properties:
+    | {
+      sessionId: string;
+      message: Message;
+    }
+    | {
+      sessionID: string;
+      info: Message;
+    };
 }
 
 export interface MessageDeletedEvent {
@@ -195,6 +201,14 @@ export interface MessageDeletedEvent {
   properties: {
     sessionId: string;
     messageId: string;
+  };
+}
+
+export interface MessageRemovedEvent {
+  type: 'message.removed';
+  properties: {
+    sessionID: string;
+    messageID: string;
   };
 }
 
@@ -207,6 +221,7 @@ export type OpenCodeEvent =
   | SessionDeletedEvent
   | MessageUpdatedEvent
   | MessageDeletedEvent
+  | MessageRemovedEvent
   | ReloadEvent;
 
 // ---------------------------------------------------------------------------

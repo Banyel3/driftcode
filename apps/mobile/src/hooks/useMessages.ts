@@ -82,8 +82,14 @@ function readMessageUpdatedPayload(event: OpenCodeEvent): { sessionId: string; m
     info?: unknown;
   };
 
-  const sessionIdCandidate = typed.sessionId ?? typed.sessionID;
   const messageCandidate = typed.message ?? typed.info;
+  const sessionFromMessage =
+    messageCandidate && typeof messageCandidate === 'object'
+      ? (messageCandidate as { sessionId?: unknown; sessionID?: unknown }).sessionId ??
+        (messageCandidate as { sessionId?: unknown; sessionID?: unknown }).sessionID
+      : undefined;
+
+  const sessionIdCandidate = typed.sessionId ?? typed.sessionID ?? sessionFromMessage;
 
   if (typeof sessionIdCandidate !== 'string' || !messageCandidate || typeof messageCandidate !== 'object') {
     return null;
@@ -96,7 +102,7 @@ function readMessageUpdatedPayload(event: OpenCodeEvent): { sessionId: string; m
 }
 
 function readMessageDeletedPayload(event: OpenCodeEvent): { sessionId: string; messageId: string } | null {
-  if (event.type !== 'message.deleted') return null;
+  if (event.type !== 'message.deleted' && event.type !== 'message.removed') return null;
 
   const props = (event as { properties?: unknown }).properties;
   if (!props || typeof props !== 'object') return null;
@@ -106,10 +112,14 @@ function readMessageDeletedPayload(event: OpenCodeEvent): { sessionId: string; m
     sessionID?: unknown;
     messageId?: unknown;
     messageID?: unknown;
+    info?: {
+      sessionID?: unknown;
+      messageID?: unknown;
+    };
   };
 
-  const sessionIdCandidate = typed.sessionId ?? typed.sessionID;
-  const messageIdCandidate = typed.messageId ?? typed.messageID;
+  const sessionIdCandidate = typed.sessionId ?? typed.sessionID ?? typed.info?.sessionID;
+  const messageIdCandidate = typed.messageId ?? typed.messageID ?? typed.info?.messageID;
 
   if (typeof sessionIdCandidate !== 'string' || typeof messageIdCandidate !== 'string') {
     return null;

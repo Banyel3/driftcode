@@ -48,7 +48,8 @@ import { useConnectionStore } from '../../store';
 import { useMessages, messageKeys } from '../../hooks/useMessages';
 import { useSendMessage } from '../../hooks/useSendMessage';
 import { useCommands } from '../../hooks/useCommands';
-import { MessageBubble, TypingIndicator } from './MessageBubble';
+import { MessageBubble } from './MessageBubble';
+import { ReasoningBlock } from './ReasoningBlock';
 import type { ConversationScreenProps } from '../../navigation/types';
 
 // ---------------------------------------------------------------------------
@@ -172,6 +173,7 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
 
   // ── Composer state ───────────────────────────────────────────────────────
   const [inputText, setInputText] = useState('');
+  const [showThinkingDetails, setShowThinkingDetails] = useState(false);
   const listRef = useRef<FlatList<Message>>(null);
   const hasInitialScrollRef = useRef(false);
   const prevSessionIdRef = useRef<string | null>(sessionId);
@@ -199,6 +201,23 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
     }
   }, [messages.length]);
+
+  const latestThinkingText = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i];
+      if (msg.role !== 'assistant') continue;
+      const reasoningParts = msg.parts.filter((part) =>
+        part.type === 'reasoning' && typeof part.reasoning === 'string' && part.reasoning.trim().length > 0,
+      );
+      if (reasoningParts.length === 0) continue;
+      return reasoningParts
+        .map((part) => (part.type === 'reasoning' ? part.reasoning : ''))
+        .filter((text) => text.length > 0)
+        .join('\n\n')
+        .trim();
+    }
+    return null;
+  }, [messages]);
 
   // ── Slash command suggestion logic ───────────────────────────────────────
   // Show suggestions whenever the input starts with "/" and has no space yet
@@ -248,10 +267,16 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
   }, [inputText, isBusy, sessionId, send, runSlashCommand]);
 
   // ── Render helpers ───────────────────────────────────────────────────────
-  const renderItem = useCallback(
-    ({ item }: { item: Message }) => <MessageBubble message={item} />,
-    [],
-  );
+  const renderItem = useCallback(({ item }: { item: Message }) => {
+    const isAssistant = item.role === 'assistant';
+    const hasDisplayOutput = item.parts.some((part) => part.type !== 'reasoning');
+
+    if (isAssistant && !hasDisplayOutput) {
+      return null;
+    }
+
+    return <MessageBubble message={item} />;
+  }, []);
 
   const duplicateMessageIds = useMemo(() => {
     const seen = new Set<string>();
@@ -283,8 +308,6 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
 
   // Must be a function reference, never a pre-rendered element — VirtualizedList
   // requires a component type or render fn for ListFooterComponent, not JSX.
-  const ListFooter = isStreaming ? TypingIndicator : null;
-
   // ── Main chat UI ─────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -307,7 +330,6 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
             renderItem={renderItem}
             keyExtractor={keyExtractor}
             contentContainerStyle={styles.listContent}
-            ListFooterComponent={ListFooter}
             ListEmptyComponent={
               <View style={styles.emptyList}>
                 <Text style={styles.emptyListText}>
@@ -322,6 +344,31 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
           />
         )}
+
+        {isStreaming && (
+          <View style={styles.thinkingStatusBar}>
+            <View style={styles.thinkingStatusMain}>
+              <ActivityIndicator size="small" color={COLORS.warning} />
+              <Text style={styles.thinkingStatusText}>AI is thinking…</Text>
+            </View>
+            {latestThinkingText ? (
+              <TouchableOpacity
+                style={styles.thinkingToggle}
+                onPress={() => setShowThinkingDetails((v) => !v)}
+              >
+                <Text style={styles.thinkingToggleText}>
+                  {showThinkingDetails ? 'Hide' : 'View'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        )}
+
+        {isStreaming && showThinkingDetails && latestThinkingText ? (
+          <View style={styles.thinkingPanel}>
+            <ReasoningBlock reasoning={latestThinkingText} />
+          </View>
+        ) : null}
 
         {/* Slash command suggestions — shown above the composer */}
         {showCommandSuggestions && (
@@ -530,6 +577,44 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.xs,
     color: COLORS.textSecondary,
     lineHeight: 18,
+  },
+  thinkingStatusBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderSubtle,
+    backgroundColor: COLORS.surface,
+  },
+  thinkingStatusMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+  },
+  thinkingStatusText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.warning,
+    fontWeight: '600',
+  },
+  thinkingToggle: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: BORDER_RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surfaceElevated,
+  },
+  thinkingToggleText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
+  thinkingPanel: {
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: SPACING.md,
+    paddingBottom: SPACING.xs,
   },
   // ── Composer ─────────────────────────────────────────────────────────────
   composer: {

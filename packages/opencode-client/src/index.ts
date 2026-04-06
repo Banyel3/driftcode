@@ -31,6 +31,7 @@ export type {
   SessionDeletedEvent,
   MessageUpdatedEvent,
   MessageDeletedEvent,
+  MessageRemovedEvent,
   ReloadEvent,
   APIErrorBody,
 } from './types';
