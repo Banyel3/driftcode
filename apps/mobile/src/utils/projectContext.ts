@@ -1,5 +1,6 @@
 import type { Session, Project } from '@driftcode/opencode-client';
 import type { ActiveProject } from '../store';
+import { basenameSafe } from './path';
 
 function trimTrailingSlash(path: string): string {
   const trimmed = path.trim();
@@ -42,4 +43,38 @@ export function getActiveProjectWorktree(activeProject: ActiveProject | null): s
     return getProjectWorktree(activeProject.project);
   }
   return normalizePath(activeProject.resolvedWorktree ?? null);
+}
+
+function matchesRepoName(path: string | null, repoName: string): boolean {
+  if (!path) return false;
+  const base = basenameSafe(path)?.toLowerCase();
+  return base === repoName.toLowerCase();
+}
+
+export function sessionMatchesActiveProject(
+  session: Session,
+  activeProject: ActiveProject | null,
+): boolean {
+  if (!activeProject) return true;
+
+  const sessionPath = getSessionWorktree(session);
+  if (!sessionPath) return false;
+
+  if (activeProject.kind === 'server') {
+    return pathsMatch(sessionPath, getProjectWorktree(activeProject.project));
+  }
+
+  const byResolved = pathsMatch(sessionPath, activeProject.resolvedWorktree ?? null);
+  const byRepoName = matchesRepoName(sessionPath, activeProject.repo.name);
+  return byResolved || byRepoName;
+}
+
+export function projectMatchesActiveProject(
+  project: Project,
+  activeProject: ActiveProject | null,
+): boolean {
+  if (!activeProject || activeProject.kind !== 'github') return false;
+  const worktree = getProjectWorktree(project);
+  if (!worktree) return false;
+  return matchesRepoName(worktree, activeProject.repo.name);
 }

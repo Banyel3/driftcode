@@ -57,10 +57,9 @@ import { FileViewer } from './FileViewer';
 import {
   getActiveProjectWorktree,
   getProjectWorktree,
-  getSessionWorktree,
-  pathsMatch,
+  sessionMatchesActiveProject,
+  projectMatchesActiveProject,
 } from '../../utils/projectContext';
-import { basenameSafe } from '../../utils/path';
 import type { FilesScreenProps } from '../../navigation/types';
 
 export function FilesScreen({ route, navigation }: FilesScreenProps) {
@@ -81,11 +80,7 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
     const direct = getActiveProjectWorktree(activeProject);
     if (direct) return direct;
     if (!activeProject || activeProject.kind !== 'github') return null;
-    const repoName = activeProject.repo.name.toLowerCase();
-    const matched = serverProjects.find((project) => {
-      const worktree = getProjectWorktree(project);
-      return worktree ? basenameSafe(worktree)?.toLowerCase() === repoName : false;
-    });
+    const matched = serverProjects.find((project) => projectMatchesActiveProject(project, activeProject));
     return matched ? getProjectWorktree(matched) : null;
   }, [activeProject, serverProjects]);
 
@@ -121,9 +116,9 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
   const [isCreatingSession, setIsCreatingSession] = useState(false);
 
   const scopedSessions = useMemo(() => {
-    if (!rootPath) return sessions;
-    return sessions.filter((session) => pathsMatch(getSessionWorktree(session), rootPath));
-  }, [sessions, rootPath]);
+    if (!activeProject) return sessions;
+    return sessions.filter((session) => sessionMatchesActiveProject(session, activeProject));
+  }, [sessions, activeProject]);
 
   const diffSession = useMemo(() => {
     const active = scopedSessions.find((session) => session.id === activeSessionId);

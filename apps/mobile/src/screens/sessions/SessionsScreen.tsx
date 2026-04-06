@@ -39,8 +39,7 @@ import { messageKeys } from '../../hooks/useMessages';
 import { SessionCard } from './SessionCard';
 import {
   getActiveProjectWorktree,
-  getSessionWorktree,
-  pathsMatch,
+  sessionMatchesActiveProject,
 } from '../../utils/projectContext';
 import type { SessionListScreenProps } from '../../navigation/types';
 
@@ -68,9 +67,10 @@ export function SessionsScreen({ navigation }: SessionListScreenProps) {
   const activeWorktree = getActiveProjectWorktree(activeProject);
 
   const visibleSessions = useMemo(() => {
-    if (scopeMode === 'all' || !activeWorktree) return sessions;
-    return sessions.filter((session) => pathsMatch(getSessionWorktree(session), activeWorktree));
-  }, [scopeMode, activeWorktree, sessions]);
+    if (scopeMode === 'all') return sessions;
+    if (!activeProject) return sessions;
+    return sessions.filter((session) => sessionMatchesActiveProject(session, activeProject));
+  }, [scopeMode, activeProject, sessions]);
 
   // ── Open a session in the Chat tab ─────────────────────────────────────────
   const handleOpen = useCallback(
