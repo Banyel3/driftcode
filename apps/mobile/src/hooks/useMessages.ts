@@ -5,7 +5,7 @@
  * Supports both legacy and MessageV2 payload shapes used by opencode.
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   getMessages,
   createOpenCodeClient,
@@ -45,6 +45,16 @@ function dedupeAndSort(messages: Message[]): Message[] {
     seen.set(message.id, message);
   }
   return sortMessages(Array.from(seen.values()));
+}
+
+function firstText(message: Message): string {
+  const textPart = message.parts.find((part): part is TextPart => part.type === 'text');
+  return textPart?.text.trim() ?? '';
+}
+
+function isRecentOptimistic(message: Message): boolean {
+  if (!message.id.startsWith('optimistic-')) return false;
+  return Date.now() - messageTimestamp(message) < 20_000;
 }
 
 function mergeMessage(prev: Message, incoming: Message): Message {
@@ -202,6 +212,37 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
   const serverPassword = useConnectionStore((s) => s.serverPassword);
 
   const queryClient = useQueryClient();
+  const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastReconcileAtRef = useRef(0);
+  const lastPartEventAtRef = useRef(0);
+
+  const triggerReconcile = useCallback(
+    (delayMs = 0) => {
+      const run = () => {
+        if (!sessionIdRef.current) return;
+        const now = Date.now();
+        if (now - lastReconcileAtRef.current < 5_000) return;
+        lastReconcileAtRef.current = now;
+        void queryClient.invalidateQueries({
+          queryKey: messageKeys.session(sessionIdRef.current),
+        });
+      };
+
+      if (delayMs <= 0) {
+        run();
+        return;
+      }
+
+      if (reconcileTimerRef.current) {
+        clearTimeout(reconcileTimerRef.current);
+      }
+      reconcileTimerRef.current = setTimeout(() => {
+        reconcileTimerRef.current = null;
+        run();
+      }, delayMs);
+    },
+    [queryClient],
+  );
 
   const { data, isLoading, isError, error } = useQuery<Message[], Error>({
     queryKey: messageKeys.session(sessionId ?? ''),
@@ -216,7 +257,20 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
       const serverMessages = await getMessages(client, sessionId);
 
       const cached = queryClient.getQueryData<Message[]>(messageKeys.session(sessionId)) ?? [];
-      const optimistic = cached.filter((message) => message.id.startsWith('optimistic-'));
+      const serverUserMessages = serverMessages.filter((message) => message.role === 'user');
+      const optimistic = cached
+        .filter((message) => isRecentOptimistic(message))
+        .filter((optimisticMessage) => {
+          const optimisticText = firstText(optimisticMessage);
+          if (!optimisticText) return true;
+          const optimisticTs = messageTimestamp(optimisticMessage);
+          return !serverUserMessages.some((serverMessage) => {
+            const serverText = firstText(serverMessage);
+            if (!serverText || serverText !== optimisticText) return false;
+            const serverTs = messageTimestamp(serverMessage);
+            return Math.abs(serverTs - optimisticTs) < 120_000;
+          });
+        });
 
       return dedupeAndSort([...serverMessages, ...optimistic]);
     },
@@ -241,10 +295,19 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
               ? list.filter((item) => !item.id.startsWith('optimistic-'))
               : list;
           const idx = base.findIndex((item) => item.id === message.id);
-          if (idx < 0) return dedupeAndSort([...base, message]);
+          if (idx < 0) {
+            if (message.role === 'assistant' && message.parts.length === 0) {
+              triggerReconcile(900);
+              return base;
+            }
+            return dedupeAndSort([...base, message]);
+          }
 
           const next = [...base];
           next[idx] = mergeMessage(base[idx], message);
+          if (message.role === 'assistant' && message.parts.length === 0) {
+            triggerReconcile(900);
+          }
           return dedupeAndSort(next);
         });
         return;
@@ -262,6 +325,7 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
       const partUpdated = readPartUpdatedPayload(event);
       if (partUpdated) {
         if (partUpdated.sessionId !== sessionIdRef.current) return;
+        lastPartEventAtRef.current = Date.now();
         queryClient.setQueryData<Message[]>(messageKeys.session(partUpdated.sessionId), (prev) => {
           const list = prev ?? [];
           const idx = list.findIndex((message) => message.id === partUpdated.messageId);
@@ -288,6 +352,7 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
       const partRemoved = readPartRemovedPayload(event);
       if (partRemoved) {
         if (partRemoved.sessionId !== sessionIdRef.current) return;
+        lastPartEventAtRef.current = Date.now();
         queryClient.setQueryData<Message[]>(messageKeys.session(partRemoved.sessionId), (prev) => {
           const list = prev ?? [];
           const idx = list.findIndex((message) => message.id === partRemoved.messageId);
@@ -310,13 +375,21 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
     onEvent: handleEvent,
     onReconnect: () => {
       if (!sessionIdRef.current) return;
-      void queryClient.invalidateQueries({ queryKey: messageKeys.session(sessionIdRef.current) });
+      triggerReconcile(200);
     },
   });
 
+  useEffect(() => {
+    return () => {
+      if (reconcileTimerRef.current) {
+        clearTimeout(reconcileTimerRef.current);
+      }
+    };
+  }, []);
+
   const messages = data ?? [];
   const lastMessage = messages.at(-1);
-  const hasOptimisticUser = messages.some((message) => message.id.startsWith('optimistic-'));
+  const hasOptimisticUser = messages.some((message) => isRecentOptimistic(message));
 
   const hasPartialToolCall =
     lastMessage?.parts.some(
@@ -346,11 +419,29 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
     (lastAssistantIdx === -1 || lastUserIdx < lastAssistantIdx) &&
     Date.now() - messageTimestamp(newestUser) < 30_000;
 
+  const isStreaming = hasOptimisticUser || assistantStreaming || awaitingAssistant;
+
+  useEffect(() => {
+    if (!isStreaming) return;
+    const timer = setTimeout(() => {
+      const now = Date.now();
+      const lastPartAge =
+        lastPartEventAtRef.current > 0 ? now - lastPartEventAtRef.current : Number.POSITIVE_INFINITY;
+      const newestAge = lastMessage ? now - messageTimestamp(lastMessage) : Number.POSITIVE_INFINITY;
+
+      if (lastPartAge > 12_000 && newestAge > 12_000) {
+        triggerReconcile(0);
+      }
+    }, 12_000);
+
+    return () => clearTimeout(timer);
+  }, [isStreaming, lastMessage?.id, triggerReconcile]);
+
   return {
     messages,
     isLoading,
     isError,
     error: error ?? null,
-    isStreaming: hasOptimisticUser || assistantStreaming || awaitingAssistant,
+    isStreaming,
   };
 }
