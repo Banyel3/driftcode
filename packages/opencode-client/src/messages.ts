@@ -20,10 +20,17 @@ function normalizeRole(value: unknown): MessageRole {
 }
 
 function normalizeToolState(state: unknown): ToolInvocation['state'] {
-  if (state === 'result' || state === 'completed' || state === 'done' || state === 'success') {
+  const status =
+    typeof state === 'string'
+      ? state
+      : state && typeof state === 'object' && typeof (state as { status?: unknown }).status === 'string'
+        ? (state as { status: string }).status
+        : null;
+
+  if (status === 'result' || status === 'completed' || status === 'done' || status === 'success') {
     return 'result';
   }
-  if (state === 'partial-call' || state === 'streaming' || state === 'running') {
+  if (status === 'partial-call' || status === 'streaming' || status === 'running') {
     return 'partial-call';
   }
   return 'call';
@@ -46,6 +53,7 @@ export function normalizeIncomingPart(part: unknown): MessagePart | null {
         : typeof p.text === 'string'
           ? p.text
           : '';
+    if (reasoning.trim().length === 0) return null;
     return { type: 'reasoning', reasoning };
   }
 
@@ -59,6 +67,11 @@ export function normalizeIncomingPart(part: unknown): MessagePart | null {
   }
 
   if (type === 'tool') {
+    const stateObj =
+      p.state && typeof p.state === 'object'
+        ? (p.state as Record<string, unknown>)
+        : null;
+
     const toolName = typeof p.tool === 'string' ? p.tool : 'tool';
     const toolCallId =
       typeof p.callID === 'string'
@@ -66,20 +79,35 @@ export function normalizeIncomingPart(part: unknown): MessagePart | null {
         : typeof p.id === 'string'
           ? p.id
           : `${toolName}-${Date.now()}`;
+
     const args =
-      p.input && typeof p.input === 'object'
-        ? (p.input as Record<string, unknown>)
+      stateObj?.input && typeof stateObj.input === 'object'
+        ? (stateObj.input as Record<string, unknown>)
+        : p.input && typeof p.input === 'object'
+          ? (p.input as Record<string, unknown>)
         : p.args && typeof p.args === 'object'
           ? (p.args as Record<string, unknown>)
           : {};
-    const result = p.output ?? p.result;
+
+    const result =
+      stateObj?.output ??
+      stateObj?.error ??
+      stateObj?.raw ??
+      p.output ??
+      p.result;
+
+    const title = typeof stateObj?.title === 'string' ? stateObj.title : null;
+
     return {
       type: 'tool-invocation',
       toolInvocation: {
-        state: normalizeToolState(p.state),
+        state: normalizeToolState(stateObj ?? p.state),
         toolCallId,
         toolName,
-        args,
+        args: {
+          ...args,
+          ...(title ? { __title: title } : {}),
+        },
         ...(result !== undefined ? { result } : {}),
       },
     };

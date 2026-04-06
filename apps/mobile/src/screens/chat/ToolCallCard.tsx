@@ -64,6 +64,17 @@ function toolHeadline(toolInvocation: ToolInvocation): string | null {
   return null;
 }
 
+function readableArgs(args: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(args).filter(([key]) => !key.startsWith('__')),
+  );
+}
+
+function getToolTitle(args: Record<string, unknown>): string | null {
+  const raw = args.__title;
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw : null;
+}
+
 function stateIcon(
   state: ToolInvocation['state'],
 ): { name: React.ComponentProps<typeof Ionicons>['name']; color: string } {
@@ -76,6 +87,10 @@ export function ToolCallCard({ toolInvocation }: ToolCallCardProps): React.React
   const [expanded, setExpanded] = useState(false);
   const { name: iconName, color: iconColor } = stateIcon(toolInvocation.state);
   const headline = toolHeadline(toolInvocation);
+  const argsPayload = readableArgs(toolInvocation.args);
+  const argsJson = JSON.stringify(argsPayload, null, 2);
+  const hasArgs = Object.keys(argsPayload).length > 0;
+  const toolTitle = getToolTitle(toolInvocation.args);
 
   return (
     <View style={styles.card}>
@@ -87,6 +102,9 @@ export function ToolCallCard({ toolInvocation }: ToolCallCardProps): React.React
       >
         <Ionicons name={iconName} size={14} color={iconColor} />
         <Text style={styles.toolName}>{toolLabel(toolInvocation.toolName)}</Text>
+        {toolTitle !== null && (
+          <Text style={styles.statusLabel} numberOfLines={1}>{toolTitle}</Text>
+        )}
         {headline !== null && (
           <Text style={styles.headline} numberOfLines={1}>
             {headline}
@@ -106,23 +124,27 @@ export function ToolCallCard({ toolInvocation }: ToolCallCardProps): React.React
           {/* Args */}
           <Text style={styles.sectionLabel}>Arguments</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <Text style={styles.json}>
-              {JSON.stringify(toolInvocation.args, null, 2)}
-            </Text>
+            <Text style={styles.json}>{hasArgs ? argsJson : 'No structured arguments'}</Text>
           </ScrollView>
 
           {/* Result (only when state === 'result') */}
-          {toolInvocation.state === 'result' && toolInvocation.result !== undefined && (
+          {toolInvocation.state === 'result' && (
             <>
               <Text style={[styles.sectionLabel, styles.resultLabel]}>Result</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <Text style={styles.json} numberOfLines={20}>
-                  {typeof toolInvocation.result === 'string'
+                  {toolInvocation.result === undefined
+                    ? 'No result payload'
+                    : typeof toolInvocation.result === 'string'
                     ? toolInvocation.result
                     : JSON.stringify(toolInvocation.result, null, 2)}
                 </Text>
               </ScrollView>
             </>
+          )}
+
+          {toolInvocation.state !== 'result' && (
+            <Text style={styles.pendingText}>Running…</Text>
           )}
         </View>
       )}
@@ -151,6 +173,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.text,
   },
+  statusLabel: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.warning,
+    fontWeight: '600',
+  },
   headline: {
     flex: 1,
     fontSize: FONT_SIZE.xs,
@@ -175,6 +202,12 @@ const styles = StyleSheet.create({
   },
   resultLabel: {
     marginTop: SPACING.sm,
+  },
+  pendingText: {
+    marginTop: SPACING.sm,
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textMuted,
+    fontStyle: 'italic',
   },
   json: {
     fontFamily: 'Courier',

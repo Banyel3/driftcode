@@ -22,6 +22,7 @@ interface ReasoningBlockProps {
 
 export function ReasoningBlock({ reasoning }: ReasoningBlockProps): React.ReactElement {
   const [expanded, setExpanded] = useState(false);
+  const content = reasoning.trim();
 
   return (
     <View style={styles.container}>
@@ -46,7 +47,9 @@ export function ReasoningBlock({ reasoning }: ReasoningBlockProps): React.ReactE
 
       {expanded && (
         <ScrollView style={styles.body} nestedScrollEnabled>
-          <Text style={styles.text}>{reasoning}</Text>
+          <Text style={styles.text}>
+            {content.length > 0 ? content : 'No reasoning text captured yet.'}
+          </Text>
         </ScrollView>
       )}
     </View>

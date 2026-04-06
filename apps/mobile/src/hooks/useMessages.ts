@@ -158,12 +158,27 @@ function applyPartDelta(message: Message, part: MessagePart | null, delta: strin
   const nextParts = [...message.parts];
 
   if (delta) {
-    const lastText = nextParts.length > 0 ? nextParts[nextParts.length - 1] : null;
-    if (lastText?.type === 'text') {
-      nextParts[nextParts.length - 1] = {
-        ...lastText,
-        text: (lastText as TextPart).text + delta,
-      };
+    const targetType = part?.type === 'reasoning' ? 'reasoning' : 'text';
+    const lastMatchIndex = [...nextParts]
+      .reverse()
+      .findIndex((item) => item.type === targetType);
+
+    if (lastMatchIndex >= 0) {
+      const index = nextParts.length - 1 - lastMatchIndex;
+      const current = nextParts[index];
+      if (current.type === 'text') {
+        nextParts[index] = {
+          ...current,
+          text: (current as TextPart).text + delta,
+        };
+      } else if (current.type === 'reasoning') {
+        nextParts[index] = {
+          ...current,
+          reasoning: current.reasoning + delta,
+        };
+      }
+    } else if (targetType === 'reasoning') {
+      nextParts.push({ type: 'reasoning', reasoning: delta });
     } else {
       nextParts.push({ type: 'text', text: delta });
     }
