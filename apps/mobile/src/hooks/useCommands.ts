@@ -32,6 +32,17 @@ function normalizeCommandName(name: string): string {
   return trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
 }
 
+const FALLBACK_BUILTIN_COMMANDS: Command[] = [
+  { name: 'init', description: 'guided AGENTS.md setup', type: 'builtin' },
+  { name: 'review', description: 'review current changes', type: 'builtin' },
+  { name: 'share', description: 'create a share link for this session', type: 'builtin' },
+  { name: 'unshare', description: 'remove the session share link', type: 'builtin' },
+  { name: 'fork', description: 'create a fork of this session', type: 'builtin' },
+  { name: 'undo', description: 'revert to previous user message', type: 'builtin' },
+  { name: 'redo', description: 'restore reverted messages', type: 'builtin' },
+  { name: 'help', description: 'show help for commands', type: 'builtin' },
+];
+
 function normalizeCommands(raw: unknown): Command[] {
   if (!Array.isArray(raw)) return [];
 
@@ -55,6 +66,12 @@ function normalizeCommands(raw: unknown): Command[] {
     };
 
     deduped.set(name.toLowerCase(), normalized);
+  }
+
+  for (const fallback of FALLBACK_BUILTIN_COMMANDS) {
+    if (!deduped.has(fallback.name.toLowerCase())) {
+      deduped.set(fallback.name.toLowerCase(), fallback);
+    }
   }
 
   return Array.from(deduped.values()).sort((a, b) => a.name.localeCompare(b.name));

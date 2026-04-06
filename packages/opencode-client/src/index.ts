@@ -56,6 +56,11 @@ export {
   createSession,
   deleteSession,
   getSessionDiff,
+  shareSession,
+  unshareSession,
+  forkSession,
+  revertSession,
+  unrevertSession,
 } from './sessions';
 
 export {

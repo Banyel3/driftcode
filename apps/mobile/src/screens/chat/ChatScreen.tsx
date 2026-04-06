@@ -35,6 +35,11 @@ import {
   createOpenCodeClient,
   getSession,
   executeCommand,
+  shareSession,
+  unshareSession,
+  forkSession,
+  revertSession,
+  unrevertSession,
 } from '@driftcode/opencode-client';
 import type { Session, Message, Command } from '@driftcode/opencode-client';
 
@@ -132,6 +137,46 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
       if (!client || !sessionId) return;
       setIsRunningCommand(true);
       try {
+        const normalizedName = commandName.trim().toLowerCase();
+
+        if (normalizedName === 'share') {
+          await shareSession(client, sessionId);
+          Alert.alert('Session shared', 'Share link created for this session.');
+          await queryClient.invalidateQueries({ queryKey: ['sessions'] });
+          return;
+        }
+
+        if (normalizedName === 'unshare') {
+          await unshareSession(client, sessionId);
+          Alert.alert('Session unshared', 'Share link removed for this session.');
+          await queryClient.invalidateQueries({ queryKey: ['sessions'] });
+          return;
+        }
+
+        if (normalizedName === 'fork') {
+          const forked = await forkSession(client, sessionId);
+          setActiveSessionId(forked.id);
+          navigation.replace('Conversation', { sessionId: forked.id });
+          return;
+        }
+
+        if (normalizedName === 'undo') {
+          const lastUser = [...messages].reverse().find((msg) => msg.role === 'user');
+          if (!lastUser) {
+            Alert.alert('Nothing to undo', 'No user message found to revert.');
+            return;
+          }
+          await revertSession(client, sessionId, lastUser.id);
+          await queryClient.invalidateQueries({ queryKey: messageKeys.session(sessionId) });
+          return;
+        }
+
+        if (normalizedName === 'redo') {
+          await unrevertSession(client, sessionId);
+          await queryClient.invalidateQueries({ queryKey: messageKeys.session(sessionId) });
+          return;
+        }
+
         const message = await executeCommand(client, sessionId, {
           command: commandName,
           arguments: commandArgs,
@@ -165,7 +210,7 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
         setIsRunningCommand(false);
       }
     },
-    [client, sessionId, queryClient],
+    [client, sessionId, queryClient, setActiveSessionId, navigation, messages],
   );
 
   // ── Auto-send initialMessage once session + send are ready ───────────────

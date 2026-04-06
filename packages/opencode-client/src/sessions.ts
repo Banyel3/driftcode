@@ -54,3 +54,45 @@ export async function getSessionDiff(
   const encodedMessageId = encodeURIComponent(messageId);
   return client.get<FileDiff[]>(`/session/${sessionId}/diff?messageID=${encodedMessageId}`);
 }
+
+/** POST /session/:id/share */
+export async function shareSession(
+  client: OpenCodeClient,
+  sessionId: string,
+): Promise<Session> {
+  return client.post<Session>(`/session/${sessionId}/share`, {});
+}
+
+/** DELETE /session/:id/share */
+export async function unshareSession(
+  client: OpenCodeClient,
+  sessionId: string,
+): Promise<Session> {
+  return client.delete<Session>(`/session/${sessionId}/share`);
+}
+
+/** POST /session/:id/fork */
+export async function forkSession(
+  client: OpenCodeClient,
+  sessionId: string,
+  messageId?: string,
+): Promise<Session> {
+  return client.post<Session>(`/session/${sessionId}/fork`, messageId ? { messageID: messageId } : {});
+}
+
+/** POST /session/:id/revert */
+export async function revertSession(
+  client: OpenCodeClient,
+  sessionId: string,
+  messageId: string,
+): Promise<Session> {
+  return client.post<Session>(`/session/${sessionId}/revert`, { messageID: messageId });
+}
+
+/** POST /session/:id/unrevert */
+export async function unrevertSession(
+  client: OpenCodeClient,
+  sessionId: string,
+): Promise<Session> {
+  return client.post<Session>(`/session/${sessionId}/unrevert`, {});
+}
