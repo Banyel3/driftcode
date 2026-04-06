@@ -24,6 +24,8 @@ export const fileContentKeys = {
 export interface UseFileContentResult {
   contentText: string | null;
   contentType: 'text' | 'binary' | null;
+  contentEncoding: string | null;
+  mimeType: string | null;
   diff: string | null;
   patch: unknown;
   isLoading: boolean;
@@ -60,6 +62,8 @@ export function useFileContent(
   return {
     contentText: data?.content ?? null,
     contentType: data?.type ?? null,
+    contentEncoding: data?.encoding ?? null,
+    mimeType: data?.mimeType ?? null,
     diff: data?.diff ?? null,
     patch: data?.patch,
     isLoading,

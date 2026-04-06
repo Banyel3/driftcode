@@ -22,7 +22,33 @@ export async function getFileContent(
   filePath: string,
 ): Promise<FileContentResponse> {
   const encodedPath = encodeURIComponent(filePath);
-  return client.get<FileContentResponse>(`/file/content?path=${encodedPath}`);
+  const raw = await client.get<unknown>(`/file/content?path=${encodedPath}`);
+
+  if (typeof raw === 'string') {
+    return {
+      type: 'text',
+      content: raw,
+    };
+  }
+
+  if (!raw || typeof raw !== 'object') {
+    return {
+      type: 'text',
+      content: '',
+    };
+  }
+
+  const payload = raw as Record<string, unknown>;
+  const type = payload.type === 'binary' ? 'binary' : 'text';
+
+  return {
+    type,
+    content: typeof payload.content === 'string' ? payload.content : '',
+    ...(typeof payload.diff === 'string' ? { diff: payload.diff } : {}),
+    ...(payload.patch !== undefined ? { patch: payload.patch } : {}),
+    ...(typeof payload.mimeType === 'string' ? { mimeType: payload.mimeType } : {}),
+    ...(typeof payload.encoding === 'string' ? { encoding: payload.encoding } : {}),
+  };
 }
 
 /**

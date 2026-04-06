@@ -112,6 +112,8 @@ export interface FileContentResponse {
   content: string;
   diff?: string;
   patch?: unknown;
+  mimeType?: string;
+  encoding?: string;
 }
 
 // ---------------------------------------------------------------------------

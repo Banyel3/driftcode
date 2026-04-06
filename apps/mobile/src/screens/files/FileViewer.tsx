@@ -10,7 +10,7 @@
  *
  * All "Ask AI" actions navigate to the Chat tab with a pre-built message.
  */
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -70,6 +70,8 @@ export function FileViewer({
   const {
     contentText,
     contentType,
+    contentEncoding,
+    mimeType,
     isLoading,
     isError,
     error,
@@ -79,6 +81,22 @@ export function FileViewer({
 
   // Basename for the header
   const filename = basenameSafe(filePath) || filePath;
+
+  const renderedContent = useMemo(() => {
+    if (contentType !== 'text') return null;
+    if (contentText === null) return null;
+    if (contentEncoding === 'base64') {
+      try {
+        return atob(contentText);
+      } catch {
+        return null;
+      }
+    }
+    return contentText;
+  }, [contentType, contentText, contentEncoding]);
+
+  const isTextRenderable = contentType === 'text' && renderedContent !== null && renderedContent !== '';
+  const isTextEmpty = contentType === 'text' && renderedContent === '';
 
   const handleAction = useCallback(
     (action: ActionBtn) => {
@@ -110,13 +128,24 @@ export function FileViewer({
           </Text>
           <Text style={styles.langBadge}>{lang}</Text>
         </View>
-        <TouchableOpacity
-          style={styles.refreshBtn}
-          onPress={refresh}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons name="refresh-outline" size={16} color={COLORS.textMuted} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          {!isLoading && contentType && (
+            <Text style={styles.contentBadge} numberOfLines={1}>
+              {contentType === 'binary'
+                ? 'Binary'
+                : contentEncoding === 'base64'
+                  ? 'Encoded Text'
+                  : 'Text'}
+            </Text>
+          )}
+          <TouchableOpacity
+            style={styles.refreshBtn}
+            onPress={refresh}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="refresh-outline" size={16} color={COLORS.textMuted} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* ── Content ────────────────────────────────────────────────────── */}
@@ -139,20 +168,29 @@ export function FileViewer({
               </TouchableOpacity>
             </View>
           )}
-          {!isLoading && !isError && contentType === 'text' && contentText !== null && (
+          {!isLoading && !isError && isTextRenderable && (
             <View style={styles.codeInner}>
-              <SyntaxText content={contentText} lang={lang} />
+              <SyntaxText content={renderedContent ?? ''} lang={lang} />
             </View>
           )}
           {!isLoading && !isError && contentType === 'binary' && (
             <View style={styles.center}>
               <Ionicons name="document-lock-outline" size={30} color={COLORS.textMuted} />
-              <Text style={styles.emptyText}>Binary file preview is not supported.</Text>
+              <Text style={styles.emptyText}>
+                Binary file preview is not supported.
+                {mimeType ? ` (${mimeType})` : ''}
+              </Text>
             </View>
           )}
-          {!isLoading && !isError && contentType === 'text' && contentText === '' && (
+          {!isLoading && !isError && isTextEmpty && (
             <View style={styles.center}>
               <Text style={styles.emptyText}>Empty file.</Text>
+            </View>
+          )}
+          {!isLoading && !isError && contentType === 'text' && renderedContent === null && contentEncoding === 'base64' && (
+            <View style={styles.center}>
+              <Ionicons name="warning-outline" size={28} color={COLORS.warning} />
+              <Text style={styles.emptyText}>Could not decode encoded text content.</Text>
             </View>
           )}
         </ScrollView>
@@ -230,6 +268,16 @@ const styles = StyleSheet.create({
   },
   refreshBtn: {
     padding: 4,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+  },
+  contentBadge: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.warning,
+    fontWeight: '600',
   },
   // ── Code area ──────────────────────────────────────────────────────────
   codeScroll: {
