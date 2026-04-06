@@ -22,6 +22,7 @@ export type {
   ProviderInfo,
   Project,
   VCSInfo,
+  InstancePathInfo,
   FileDiff,
   Command,
   ExecuteCommandRequest,
@@ -62,6 +63,11 @@ export {
   setProviderAuth,
 } from './providers';
 
-export { listProjects, getCurrentProject, getVCSInfo } from './projects';
+export {
+  listProjects,
+  getCurrentProject,
+  getVCSInfo,
+  getInstancePathInfo,
+} from './projects';
 
 export { listCommands, executeCommand } from './commands';

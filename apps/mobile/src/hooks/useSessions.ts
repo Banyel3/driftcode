@@ -140,7 +140,11 @@ export function useSessions(): UseSessionsResult {
   });
 
   return {
-    sessions: (data ?? []).slice().sort((a, b) => b.updatedAt - a.updatedAt),
+    sessions: (data ?? []).slice().sort((a, b) => {
+      const aUpdated = a.time?.updated ?? a.updatedAt ?? 0;
+      const bUpdated = b.time?.updated ?? b.updatedAt ?? 0;
+      return bUpdated - aUpdated;
+    }),
     isLoading,
     isError,
     error: error ?? null,

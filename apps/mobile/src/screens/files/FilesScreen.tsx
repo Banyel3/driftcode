@@ -52,6 +52,7 @@ import { useServerProjects } from '../../hooks/useServerProjects';
 import { useSessions } from '../../hooks/useSessions';
 import { useMessages } from '../../hooks/useMessages';
 import { useSessionDiff } from '../../hooks/useSessionDiff';
+import { useInstancePath } from '../../hooks/useInstancePath';
 import { FileTreeNode } from './FileTreeNode';
 import { FileViewer } from './FileViewer';
 import {
@@ -59,6 +60,7 @@ import {
   getProjectWorktree,
   sessionMatchesActiveProject,
   projectMatchesActiveProject,
+  normalizePath,
 } from '../../utils/projectContext';
 import type { FilesScreenProps } from '../../navigation/types';
 
@@ -73,6 +75,7 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
   const queryClient = useQueryClient();
   const { projects: serverProjects } = useServerProjects();
   const { sessions } = useSessions();
+  const { pathInfo, refresh: refreshInstancePath } = useInstancePath();
 
   const [viewMode, setViewMode] = useState<'tree' | 'changed'>('tree');
 
@@ -89,6 +92,20 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
     setGitHubProjectWorktree(rootPath);
   }, [activeProject, rootPath, setGitHubProjectWorktree]);
 
+  const instanceWorktree = normalizePath(pathInfo?.worktree ?? null);
+
+  const fileQueryPath = useMemo(() => {
+    if (!rootPath) return null;
+    if (!instanceWorktree) return rootPath;
+    if (rootPath === instanceWorktree) return '';
+    if (rootPath.startsWith(`${instanceWorktree}/`)) {
+      return rootPath.slice(instanceWorktree.length + 1);
+    }
+    return null;
+  }, [rootPath, instanceWorktree]);
+
+  const isProjectInCurrentInstance = rootPath !== null && fileQueryPath !== null;
+
   // ── File selection ────────────────────────────────────────────────────────
   const routeFilePath = route.params?.filePath ?? null;
   const [selectedFile, setSelectedFile] = useState<string | null>(routeFilePath);
@@ -97,10 +114,11 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
     (filePath: string) => {
       if (!filePath) return filePath;
       if (filePath.startsWith('/')) return filePath;
-      if (!rootPath) return filePath;
-      return `${rootPath.replace(/\/+$/, '')}/${filePath.replace(/^\/+/, '')}`;
+      const base = instanceWorktree ?? rootPath;
+      if (!base) return filePath;
+      return `${base.replace(/\/+$/, '')}/${filePath.replace(/^\/+/, '')}`;
     },
-    [rootPath],
+    [rootPath, instanceWorktree],
   );
 
   // If the route param changes (e.g. deep-link), open that file.
@@ -118,9 +136,14 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
 
   // ── Root file tree ────────────────────────────────────────────────────────
   const { entries, isLoading, isError, error, refresh } = useFileTree(
-    rootPath ?? '',
-    rootPath !== null,
+    fileQueryPath ?? '',
+    rootPath !== null && fileQueryPath !== null,
   );
+
+  const handleRefreshTree = useCallback(async () => {
+    await refreshInstancePath();
+    await refresh();
+  }, [refreshInstancePath, refresh]);
 
   // ── Ask AI handler ────────────────────────────────────────────────────────
   const [isCreatingSession, setIsCreatingSession] = useState(false);
@@ -230,7 +253,7 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
         </View>
         {rootPath !== null && (
           <TouchableOpacity
-            onPress={refresh}
+            onPress={handleRefreshTree}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             style={styles.refreshBtn}
           >
@@ -251,6 +274,17 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
               ? 'Open a session from the project detail screen to clone and open this repository on your server, then files will appear here.'
               : 'Select a project from the Projects tab to browse files here.'}
           </Text>
+        </View>
+      ) : !isProjectInCurrentInstance ? (
+        <View style={styles.center}>
+          <Ionicons name="alert-circle-outline" size={48} color={COLORS.warning} />
+          <Text style={styles.emptyTitle}>Project not active in server instance</Text>
+          <Text style={styles.emptyBody}>
+            Open this project in a chat session first, then file tree browsing will use the active server worktree.
+          </Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={handleRefreshTree}>
+            <Text style={styles.retryText}>Refresh context</Text>
+          </TouchableOpacity>
         </View>
       ) : viewMode === 'changed' ? (
         isLoadingDiffs ? (
@@ -320,7 +354,7 @@ export function FilesScreen({ route, navigation }: FilesScreenProps) {
           refreshControl={
             <RefreshControl
               refreshing={false}
-              onRefresh={refresh}
+              onRefresh={handleRefreshTree}
               tintColor={COLORS.primary}
               colors={[COLORS.primary]}
             />

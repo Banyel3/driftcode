@@ -30,6 +30,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -58,6 +59,8 @@ export function ProjectsScreen({ navigation }: ProjectListScreenProps) {
   const githubToken = useConnectionStore((s) => s.githubToken);
   const setActiveProject = useConnectionStore((s) => s.setActiveProject);
   const activeProject = useConnectionStore((s) => s.activeProject);
+  const keepActiveProject = useConnectionStore((s) => s.keepActiveProject);
+  const setKeepActiveProject = useConnectionStore((s) => s.setKeepActiveProject);
 
   const [searchQuery, setSearchQuery] = useState('');
   const searchRef = useRef<TextInput>(null);
@@ -137,6 +140,16 @@ export function ProjectsScreen({ navigation }: ProjectListScreenProps) {
               <Ionicons name="logo-github" size={12} color={COLORS.success} />
               <Text style={styles.githubBadgeText}>GitHub</Text>
             </View>
+          </View>
+
+          <View style={styles.keepActiveRow}>
+            <Text style={styles.keepActiveLabel}>Keep Active Project</Text>
+            <Switch
+              value={keepActiveProject}
+              onValueChange={setKeepActiveProject}
+              trackColor={{ false: COLORS.border, true: `${COLORS.primary}66` }}
+              thumbColor={keepActiveProject ? COLORS.primary : COLORS.surfaceElevated}
+            />
           </View>
 
           {/* Search bar */}
@@ -230,6 +243,16 @@ export function ProjectsScreen({ navigation }: ProjectListScreenProps) {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Projects</Text>
+      </View>
+
+      <View style={styles.keepActiveRow}>
+        <Text style={styles.keepActiveLabel}>Keep Active Project</Text>
+        <Switch
+          value={keepActiveProject}
+          onValueChange={setKeepActiveProject}
+          trackColor={{ false: COLORS.border, true: `${COLORS.primary}66` }}
+          thumbColor={keepActiveProject ? COLORS.primary : COLORS.surfaceElevated}
+        />
       </View>
 
       {/* GitHub upsell banner */}
@@ -338,6 +361,20 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.xs,
     fontWeight: '600',
     color: COLORS.success,
+  },
+  keepActiveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderSubtle,
+  },
+  keepActiveLabel: {
+    fontSize: FONT_SIZE.xs,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
   },
   // ── Search ──────────────────────────────────────────────────────────────
   searchBar: {

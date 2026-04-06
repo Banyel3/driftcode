@@ -68,7 +68,7 @@ export function SessionsScreen({ navigation }: SessionListScreenProps) {
 
   const visibleSessions = useMemo(() => {
     if (scopeMode === 'all') return sessions;
-    if (!activeProject) return sessions;
+    if (!activeProject) return [];
     return sessions.filter((session) => sessionMatchesActiveProject(session, activeProject));
   }, [scopeMode, activeProject, sessions]);
 
@@ -193,7 +193,9 @@ export function SessionsScreen({ navigation }: SessionListScreenProps) {
               <Text style={styles.emptyBody}>
                 {activeProject !== null && scopeMode === 'project'
                   ? 'No sessions in this project yet. Tap + to start one.'
-                  : 'Tap the + button to start a new AI coding session.'}
+                  : scopeMode === 'project'
+                    ? 'Select a project from the Projects tab to scope sessions.'
+                    : 'Tap the + button to start a new AI coding session.'}
               </Text>
             </View>
           }

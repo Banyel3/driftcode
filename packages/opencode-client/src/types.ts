@@ -154,6 +154,14 @@ export interface VCSInfo {
   behind?: number;
 }
 
+export interface InstancePathInfo {
+  home: string;
+  state: string;
+  config: string;
+  worktree: string;
+  directory: string;
+}
+
 // ---------------------------------------------------------------------------
 // SSE Events
 // ---------------------------------------------------------------------------

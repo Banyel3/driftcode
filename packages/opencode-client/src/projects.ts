@@ -1,5 +1,5 @@
 import type { OpenCodeClient } from './client';
-import type { Project, VCSInfo } from './types';
+import type { Project, VCSInfo, InstancePathInfo } from './types';
 
 /**
  * GET /project
@@ -27,4 +27,14 @@ export async function getCurrentProject(
  */
 export async function getVCSInfo(client: OpenCodeClient): Promise<VCSInfo> {
   return client.get<VCSInfo>('/vcs');
+}
+
+/**
+ * GET /path
+ * Returns current instance path context, including active worktree.
+ */
+export async function getInstancePathInfo(
+  client: OpenCodeClient,
+): Promise<InstancePathInfo> {
+  return client.get<InstancePathInfo>('/path');
 }
