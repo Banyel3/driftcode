@@ -1,5 +1,6 @@
 import type { OpenCodeClient } from './client';
 import type { Command, ExecuteCommandRequest, Message } from './types';
+import { normalizeIncomingMessage } from './messages';
 
 // Long-running commands (e.g. /init which runs AI analysis) can take a while.
 const COMMAND_TIMEOUT_MS = 120_000;
@@ -24,9 +25,16 @@ export async function executeCommand(
   sessionId: string,
   request: ExecuteCommandRequest,
 ): Promise<Message> {
-  return client.post<Message>(
+  const raw = await client.post<unknown>(
     `/session/${sessionId}/command`,
     request,
     COMMAND_TIMEOUT_MS,
   );
+
+  return normalizeIncomingMessage(raw) ?? {
+    id: `command-${Date.now()}`,
+    role: 'assistant',
+    parts: [],
+    createdAt: Date.now(),
+  };
 }

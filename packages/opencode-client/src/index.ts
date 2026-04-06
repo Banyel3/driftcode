@@ -32,6 +32,8 @@ export type {
   MessageUpdatedEvent,
   MessageDeletedEvent,
   MessageRemovedEvent,
+  MessagePartUpdatedEvent,
+  MessagePartRemovedEvent,
   ReloadEvent,
   APIErrorBody,
 } from './types';
@@ -54,7 +56,14 @@ export {
   getSessionDiff,
 } from './sessions';
 
-export { getMessages, sendMessage, sendMessageAsync } from './messages';
+export {
+  getMessages,
+  sendMessage,
+  sendMessageAsync,
+  normalizeIncomingMessage,
+  normalizeIncomingMessages,
+  normalizeIncomingPart,
+} from './messages';
 
 export { listFiles, getFileContent, findFiles } from './files';
 

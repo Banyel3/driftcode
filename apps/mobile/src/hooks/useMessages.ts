@@ -1,72 +1,60 @@
 /**
  * useMessages
  *
- * Fetches the message history for a session and keeps it fresh via the global
- * SSE event stream.  Uses TanStack Query for caching, background refetch, and
- * loading/error states.
- *
- * Strategy:
- *  1. On mount, fetch the full message list (GET /session/:id/message).
- *  2. Listen on the SSE stream for `message.updated` / `message.deleted`
- *     events and apply them as optimistic cache patches — no full refetch
- *     needed during streaming.
+ * Fetches and normalizes session messages, then keeps cache in sync via SSE.
+ * Supports both legacy and MessageV2 payload shapes used by opencode.
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef } from 'react';
-import { getMessages, createOpenCodeClient } from '@driftcode/opencode-client';
-import type { Message, MessagePart, ToolInvocationPart, TextPart, OpenCodeEvent } from '@driftcode/opencode-client';
+import {
+  getMessages,
+  createOpenCodeClient,
+  normalizeIncomingMessage,
+  normalizeIncomingPart,
+} from '@driftcode/opencode-client';
+import type {
+  Message,
+  MessagePart,
+  OpenCodeEvent,
+  TextPart,
+  ToolInvocationPart,
+} from '@driftcode/opencode-client';
 import { useConnectionStore } from '../store';
 import { useSSEStream } from './useSSEStream';
 
-function messageTimestamp(msg: Message): number {
-  const createdAt = (msg as { createdAt?: unknown }).createdAt;
-  if (typeof createdAt === 'number' && Number.isFinite(createdAt)) {
-    return createdAt;
-  }
-
-  const timeCreated = (msg as { time?: { created?: unknown } }).time?.created;
-  if (typeof timeCreated === 'number' && Number.isFinite(timeCreated)) {
-    return timeCreated;
-  }
-
-  return 0;
+function messageTimestamp(message: Message): number {
+  return typeof message.createdAt === 'number' && Number.isFinite(message.createdAt)
+    ? message.createdAt
+    : 0;
 }
 
-function normalizeMessage(msg: Message): Message {
-  const ts = messageTimestamp(msg);
+function sortMessages(messages: Message[]): Message[] {
+  return messages
+    .map((message, index) => ({ message, index }))
+    .sort((a, b) => {
+      const ts = messageTimestamp(a.message) - messageTimestamp(b.message);
+      if (ts !== 0) return ts;
+      return a.index - b.index;
+    })
+    .map(({ message }) => message);
+}
+
+function dedupeAndSort(messages: Message[]): Message[] {
+  const seen = new Map<string, Message>();
+  for (const message of messages) {
+    seen.set(message.id, message);
+  }
+  return sortMessages(Array.from(seen.values()));
+}
+
+function mergeMessage(prev: Message, incoming: Message): Message {
   return {
-    ...msg,
-    createdAt: ts,
+    ...prev,
+    ...incoming,
+    parts: incoming.parts.length > 0 ? incoming.parts : prev.parts,
+    metadata: incoming.metadata ?? prev.metadata,
+    createdAt: messageTimestamp(incoming) || messageTimestamp(prev),
   };
-}
-
-function toMessageKey(msg: Message, fallbackIndex: number): string {
-  if (typeof msg.id === 'string' && msg.id.trim().length > 0) {
-    return msg.id;
-  }
-
-  const firstPart = msg.parts[0];
-  const seed =
-    firstPart?.type === 'text'
-      ? (firstPart as TextPart).text.slice(0, 24)
-      : firstPart?.type ?? 'none';
-
-  return `synthetic-${msg.role}-${messageTimestamp(msg)}-${seed}-${fallbackIndex}`;
-}
-
-function normalizeMessages(messages: Message[]): Message[] {
-  if (messages.length <= 1) return messages.map(normalizeMessage);
-  const deduped = new Map<string, Message>();
-  for (let i = 0; i < messages.length; i += 1) {
-    const msg = normalizeMessage(messages[i]);
-    const id = toMessageKey(msg, i);
-    deduped.set(id, { ...msg, id });
-  }
-  return Array.from(deduped.values()).sort((a, b) => {
-    const ts = messageTimestamp(a) - messageTimestamp(b);
-    if (ts !== 0) return ts;
-    return a.id.localeCompare(b.id);
-  });
 }
 
 function readMessageUpdatedPayload(event: OpenCodeEvent): { sessionId: string; message: Message } | null {
@@ -74,81 +62,137 @@ function readMessageUpdatedPayload(event: OpenCodeEvent): { sessionId: string; m
 
   const props = (event as { properties?: unknown }).properties;
   if (!props || typeof props !== 'object') return null;
-
   const typed = props as {
     sessionId?: unknown;
     sessionID?: unknown;
     message?: unknown;
     info?: unknown;
+    parts?: unknown;
   };
 
-  const messageCandidate = typed.message ?? typed.info;
+  const source =
+    typed.message ??
+    (typed.info && Array.isArray(typed.parts)
+      ? { info: typed.info, parts: typed.parts }
+      : typed.info);
+
+  const normalized = normalizeIncomingMessage(source);
+  if (!normalized) return null;
+
   const sessionFromMessage =
-    messageCandidate && typeof messageCandidate === 'object'
-      ? (messageCandidate as { sessionId?: unknown; sessionID?: unknown }).sessionId ??
-        (messageCandidate as { sessionId?: unknown; sessionID?: unknown }).sessionID
+    source && typeof source === 'object'
+      ? (source as { sessionID?: unknown; sessionId?: unknown }).sessionID ??
+        (source as { sessionID?: unknown; sessionId?: unknown }).sessionId
       : undefined;
 
-  const sessionIdCandidate = typed.sessionId ?? typed.sessionID ?? sessionFromMessage;
+  const sessionId = typed.sessionId ?? typed.sessionID ?? sessionFromMessage;
+  if (typeof sessionId !== 'string') return null;
 
-  if (typeof sessionIdCandidate !== 'string' || !messageCandidate || typeof messageCandidate !== 'object') {
-    return null;
-  }
-
-  return {
-    sessionId: sessionIdCandidate,
-    message: normalizeMessage(messageCandidate as Message),
-  };
+  return { sessionId, message: normalized };
 }
 
-function readMessageDeletedPayload(event: OpenCodeEvent): { sessionId: string; messageId: string } | null {
+function readMessageRemovedPayload(event: OpenCodeEvent): { sessionId: string; messageId: string } | null {
   if (event.type !== 'message.deleted' && event.type !== 'message.removed') return null;
-
   const props = (event as { properties?: unknown }).properties;
   if (!props || typeof props !== 'object') return null;
-
   const typed = props as {
     sessionId?: unknown;
     sessionID?: unknown;
     messageId?: unknown;
     messageID?: unknown;
-    info?: {
-      sessionID?: unknown;
-      messageID?: unknown;
-    };
   };
+  const sessionId = typed.sessionId ?? typed.sessionID;
+  const messageId = typed.messageId ?? typed.messageID;
+  if (typeof sessionId !== 'string' || typeof messageId !== 'string') return null;
+  return { sessionId, messageId };
+}
 
-  const sessionIdCandidate = typed.sessionId ?? typed.sessionID ?? typed.info?.sessionID;
-  const messageIdCandidate = typed.messageId ?? typed.messageID ?? typed.info?.messageID;
-
-  if (typeof sessionIdCandidate !== 'string' || typeof messageIdCandidate !== 'string') {
-    return null;
-  }
+function readPartUpdatedPayload(
+  event: OpenCodeEvent,
+): { sessionId: string; messageId: string; part: MessagePart | null; delta: string | null } | null {
+  if (event.type !== 'message.part.updated') return null;
+  const props = (event as { properties?: unknown }).properties;
+  if (!props || typeof props !== 'object') return null;
+  const typed = props as { part?: unknown; delta?: unknown };
+  if (!typed.part || typeof typed.part !== 'object') return null;
+  const rawPart = typed.part as {
+    sessionID?: unknown;
+    sessionId?: unknown;
+    messageID?: unknown;
+    messageId?: unknown;
+  };
+  const sessionId = rawPart.sessionID ?? rawPart.sessionId;
+  const messageId = rawPart.messageID ?? rawPart.messageId;
+  if (typeof sessionId !== 'string' || typeof messageId !== 'string') return null;
 
   return {
-    sessionId: sessionIdCandidate,
-    messageId: messageIdCandidate,
+    sessionId,
+    messageId,
+    part: normalizeIncomingPart(typed.part),
+    delta: typeof typed.delta === 'string' ? typed.delta : null,
   };
 }
 
-// ---------------------------------------------------------------------------
-// Query key factory
-// ---------------------------------------------------------------------------
+function readPartRemovedPayload(event: OpenCodeEvent): { sessionId: string; messageId: string } | null {
+  if (event.type !== 'message.part.removed') return null;
+  const props = (event as { properties?: unknown }).properties;
+  if (!props || typeof props !== 'object') return null;
+  const typed = props as { sessionID?: unknown; messageID?: unknown };
+  if (typeof typed.sessionID !== 'string' || typeof typed.messageID !== 'string') return null;
+  return { sessionId: typed.sessionID, messageId: typed.messageID };
+}
+
+function applyPartDelta(message: Message, part: MessagePart | null, delta: string | null): Message {
+  if (!part && !delta) return message;
+
+  const nextParts = [...message.parts];
+
+  if (delta) {
+    const lastText = nextParts.length > 0 ? nextParts[nextParts.length - 1] : null;
+    if (lastText?.type === 'text') {
+      nextParts[nextParts.length - 1] = {
+        ...lastText,
+        text: (lastText as TextPart).text + delta,
+      };
+    } else {
+      nextParts.push({ type: 'text', text: delta });
+    }
+  }
+
+  if (part) {
+    if (part.type === 'tool-invocation') {
+      const idx = nextParts.findIndex(
+        (item) =>
+          item.type === 'tool-invocation' &&
+          (item as ToolInvocationPart).toolInvocation.toolCallId ===
+            (part as ToolInvocationPart).toolInvocation.toolCallId,
+      );
+      if (idx >= 0) {
+        nextParts[idx] = part;
+      } else {
+        nextParts.push(part);
+      }
+    } else if (!delta) {
+      nextParts.push(part);
+    }
+  }
+
+  return {
+    ...message,
+    parts: nextParts,
+  };
+}
+
 export const messageKeys = {
   all: ['messages'] as const,
   session: (sessionId: string) => ['messages', sessionId] as const,
 };
 
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
 export interface UseMessagesResult {
   messages: Message[];
   isLoading: boolean;
   isError: boolean;
   error: Error | null;
-  /** True while the AI is actively generating (last assistant message has no
-   *  text part with a non-empty string yet, or we received a partial tool call). */
   isStreaming: boolean;
 }
 
@@ -159,7 +203,6 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
 
   const queryClient = useQueryClient();
 
-  // ── 1. Fetch initial message list ─────────────────────────────────────────
   const { data, isLoading, isError, error } = useQuery<Message[], Error>({
     queryKey: messageKeys.session(sessionId ?? ''),
     enabled: sessionId !== null && serverUrl !== null && serverPassword !== null,
@@ -170,60 +213,93 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
         username: serverUsername,
         password: serverPassword,
       });
-      const raw = await getMessages(client, sessionId);
-      const serverMessages = Array.isArray(raw) ? raw : [];
+      const serverMessages = await getMessages(client, sessionId);
 
-      // Keep local optimistic user messages visible across refetches until
-      // the authoritative SSE user echo arrives and replaces them.
       const cached = queryClient.getQueryData<Message[]>(messageKeys.session(sessionId)) ?? [];
-      const optimistic = cached.filter((m) => m.id.startsWith('optimistic-'));
+      const optimistic = cached.filter((message) => message.id.startsWith('optimistic-'));
 
-      return normalizeMessages([...serverMessages, ...optimistic]);
+      return dedupeAndSort([...serverMessages, ...optimistic]);
     },
-    // Don't auto-refetch on window focus — SSE keeps us up-to-date.
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
 
-  // ── 2. SSE patch — keep the ref stable across renders ─────────────────────
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
 
   const handleEvent = useCallback(
     (event: OpenCodeEvent) => {
-      const updatedPayload = readMessageUpdatedPayload(event);
-      if (updatedPayload) {
-        const { sessionId: evtSession, message } = updatedPayload;
+      const updated = readMessageUpdatedPayload(event);
+      if (updated) {
+        const { sessionId: evtSession, message } = updated;
         if (evtSession !== sessionIdRef.current) return;
 
-        queryClient.setQueryData<Message[]>(
-          messageKeys.session(evtSession),
-          (prev) => {
-            const list = prev ?? [];
-            // When the real user message arrives via SSE, strip any optimistic
-            // placeholder we added in useSendMessage — prevents duplicate display.
-            const base =
-              message.role === 'user'
-                ? list.filter((m) => !m.id.startsWith('optimistic-'))
-                : list;
-            const idx = base.findIndex((m) => m.id === message.id);
-            if (idx === -1) return normalizeMessages([...base, message]);
-            const next = [...base];
-            next[idx] = message;
-            return normalizeMessages(next);
-          },
-        );
+        queryClient.setQueryData<Message[]>(messageKeys.session(evtSession), (prev) => {
+          const list = prev ?? [];
+          const base =
+            message.role === 'user'
+              ? list.filter((item) => !item.id.startsWith('optimistic-'))
+              : list;
+          const idx = base.findIndex((item) => item.id === message.id);
+          if (idx < 0) return dedupeAndSort([...base, message]);
+
+          const next = [...base];
+          next[idx] = mergeMessage(base[idx], message);
+          return dedupeAndSort(next);
+        });
+        return;
       }
 
-      const deletedPayload = readMessageDeletedPayload(event);
-      if (deletedPayload) {
-        const { sessionId: evtSession, messageId } = deletedPayload;
-        if (evtSession !== sessionIdRef.current) return;
-
-        queryClient.setQueryData<Message[]>(
-          messageKeys.session(evtSession),
-          (prev) => normalizeMessages((prev ?? []).filter((m) => m.id !== messageId)),
+      const removed = readMessageRemovedPayload(event);
+      if (removed) {
+        if (removed.sessionId !== sessionIdRef.current) return;
+        queryClient.setQueryData<Message[]>(messageKeys.session(removed.sessionId), (prev) =>
+          dedupeAndSort((prev ?? []).filter((message) => message.id !== removed.messageId)),
         );
+        return;
+      }
+
+      const partUpdated = readPartUpdatedPayload(event);
+      if (partUpdated) {
+        if (partUpdated.sessionId !== sessionIdRef.current) return;
+        queryClient.setQueryData<Message[]>(messageKeys.session(partUpdated.sessionId), (prev) => {
+          const list = prev ?? [];
+          const idx = list.findIndex((message) => message.id === partUpdated.messageId);
+          if (idx < 0) {
+            const created = applyPartDelta(
+              {
+                id: partUpdated.messageId,
+                role: 'assistant',
+                parts: [],
+                createdAt: Date.now(),
+              },
+              partUpdated.part,
+              partUpdated.delta,
+            );
+            return dedupeAndSort([...list, created]);
+          }
+          const next = [...list];
+          next[idx] = applyPartDelta(next[idx], partUpdated.part, partUpdated.delta);
+          return dedupeAndSort(next);
+        });
+        return;
+      }
+
+      const partRemoved = readPartRemovedPayload(event);
+      if (partRemoved) {
+        if (partRemoved.sessionId !== sessionIdRef.current) return;
+        queryClient.setQueryData<Message[]>(messageKeys.session(partRemoved.sessionId), (prev) => {
+          const list = prev ?? [];
+          const idx = list.findIndex((message) => message.id === partRemoved.messageId);
+          if (idx < 0) return list;
+          const next = [...list];
+          const target = next[idx];
+          next[idx] = {
+            ...target,
+            parts: target.parts.slice(0, Math.max(0, target.parts.length - 1)),
+          };
+          return dedupeAndSort(next);
+        });
       }
     },
     [queryClient],
@@ -234,50 +310,45 @@ export function useMessages(sessionId: string | null): UseMessagesResult {
     onEvent: handleEvent,
     onReconnect: () => {
       if (!sessionIdRef.current) return;
-      void queryClient.invalidateQueries({
-        queryKey: messageKeys.session(sessionIdRef.current),
-      });
+      void queryClient.invalidateQueries({ queryKey: messageKeys.session(sessionIdRef.current) });
     },
   });
 
-  // ── 3. Derive isStreaming ──────────────────────────────────────────────────
   const messages = data ?? [];
-  const lastMsg = messages.at(-1);
+  const lastMessage = messages.at(-1);
+  const hasOptimisticUser = messages.some((message) => message.id.startsWith('optimistic-'));
 
-  // isStreaming is true while the last assistant message is still being built:
-  //   a) it has no text part with any content yet (tokens haven't arrived), OR
-  //   b) it has a tool-invocation that hasn't received a result yet.
-  // Using both conditions prevents premature dismissal of the typing indicator
-  // during pure-tool-call steps and fixes the "trivially true" case where
-  // every() passes vacuously when there are no text parts at all.
   const hasPartialToolCall =
-    lastMsg?.parts.some(
-      (p: MessagePart) =>
-        p.type === 'tool-invocation' &&
-        (p as ToolInvocationPart).toolInvocation.state !== 'result',
+    lastMessage?.parts.some(
+      (part) =>
+        part.type === 'tool-invocation' &&
+        (part as ToolInvocationPart).toolInvocation.state !== 'result',
     ) ?? false;
 
   const hasNoText =
-    (lastMsg?.parts.every(
-      (p: MessagePart) =>
-        p.type !== 'text' ||
-        (p.type === 'text' && (p as TextPart).text === ''),
+    (lastMessage?.parts.every(
+      (part) =>
+        part.type !== 'text' ||
+        (part.type === 'text' && (part as TextPart).text.trim().length === 0),
     ) ??
-      true) && (lastMsg?.parts.length ?? 0) > 0;
+      false) && (lastMessage?.parts.length ?? 0) > 0;
 
   const assistantStreaming =
-    lastMsg?.role === 'assistant' && (hasNoText || hasPartialToolCall);
+    lastMessage?.role === 'assistant' && (hasNoText || hasPartialToolCall);
 
+  const lastUserIdx = [...messages].reverse().findIndex((message) => message.role === 'user');
+  const lastAssistantIdx = [...messages].reverse().findIndex((message) => message.role === 'assistant');
+  const newestUser = lastUserIdx >= 0 ? messages[messages.length - 1 - lastUserIdx] : null;
   const awaitingAssistant =
-    lastMsg?.role === 'user' && Date.now() - messageTimestamp(lastMsg) < 120_000;
-
-  const isStreaming = assistantStreaming || awaitingAssistant;
+    newestUser !== null &&
+    (lastAssistantIdx === -1 || lastUserIdx < lastAssistantIdx) &&
+    Date.now() - messageTimestamp(newestUser) < 30_000;
 
   return {
     messages,
     isLoading,
     isError,
-    error,
-    isStreaming,
+    error: error ?? null,
+    isStreaming: hasOptimisticUser || assistantStreaming || awaitingAssistant,
   };
 }

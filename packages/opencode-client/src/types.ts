@@ -171,6 +171,8 @@ export type EventType =
   | 'message.updated'
   | 'message.deleted'
   | 'message.removed'
+  | 'message.part.updated'
+  | 'message.part.removed'
   | 'reload';
 
 export interface SessionUpdatedEvent {
@@ -212,6 +214,23 @@ export interface MessageRemovedEvent {
   };
 }
 
+export interface MessagePartUpdatedEvent {
+  type: 'message.part.updated';
+  properties: {
+    part: unknown;
+    delta?: string;
+  };
+}
+
+export interface MessagePartRemovedEvent {
+  type: 'message.part.removed';
+  properties: {
+    sessionID: string;
+    messageID: string;
+    partID: string;
+  };
+}
+
 export interface ReloadEvent {
   type: 'reload';
 }
@@ -222,6 +241,8 @@ export type OpenCodeEvent =
   | MessageUpdatedEvent
   | MessageDeletedEvent
   | MessageRemovedEvent
+  | MessagePartUpdatedEvent
+  | MessagePartRemovedEvent
   | ReloadEvent;
 
 // ---------------------------------------------------------------------------
