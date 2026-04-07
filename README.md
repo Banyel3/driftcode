@@ -6,7 +6,7 @@ AI coding sessions from your phone. A self-hostable React Native client for [ope
 
 ## What it is
 
-DriftCode is an open-source iOS/Android app that connects to your own opencode server running on a VPS. You get a full agentic coding experience — chat, file browsing, session management, GitHub integration — from anywhere, on any device.
+DriftCode is an open-source iOS/Android app that connects to your own opencode server, whether it runs on your laptop (LAN), a VPS, or behind a tunnel. You get a full agentic coding experience — chat, file browsing, session management, GitHub integration — from anywhere, on any device.
 
 No subscription. No shared backend. Your server, your data.
 
@@ -46,54 +46,141 @@ driftcode/
 └── docker/              # Self-hosting Docker setup
 ```
 
-## Self-hosting the server
+## Hosting opencode for DriftCode
 
-The DriftCode app talks to a standard opencode server. Use the provided Docker setup to run one on any VPS.
+DriftCode works with a standard opencode server in multiple hosting modes:
 
-### One-command install
+| Mode | Best for | Server URL in app |
+|---|---|---|
+| Local network (LAN) | Home/office setup on same Wi-Fi/LAN | `http://<your-device-ip>:<port>` |
+| Public deployment (VPS + domain) | Always-on remote access | `https://code.yourdomain.com` |
+| Cloudflare Tunnel | Exposing local/private machine without opening router ports | `https://<tunnel-domain>` |
+
+> [!IMPORTANT]
+> The DriftCode demo server is only for trying the app (rate-limited, no persistence guarantees). For real work, run your own opencode server using one of the modes below.
+
+### Mode A: Local network (same Wi-Fi/LAN)
+
+If opencode is running on your laptop/PC in your local network, your phone can connect directly using that machine's IP + port.
+
+1) Start opencode on a reachable interface and fixed port:
+
+```bash
+opencode serve --hostname 0.0.0.0 --port 4096
+```
+
+2) Find your machine IP on the LAN (example: `192.168.1.25`).
+
+3) In DriftCode, connect with:
+- **Server URL**: `http://192.168.1.25:4096`
+- **Username**: usually `opencode` (or your configured username)
+- **Password**: your opencode server password
+
+Notes:
+- Keep `http://` for LAN URLs. If you omit protocol, DriftCode assumes `https://`.
+- Phone and host machine must be on the same network/VLAN.
+- Ensure local firewall allows the chosen port.
+
+### Mode B: Public deployment (VPS/domain)
+
+Use the provided Docker setup when you want a remote always-on server.
+
+#### One-command install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/driftcode/driftcode/main/docker/install.sh | bash
 ```
 
-This will:
-1. Check for Docker and Docker Compose
-2. Create `~/driftcode-server/` with a `docker-compose.yml` and `.env`
-3. Generate a random server password
-4. Pull and start the container
-5. Print your server URL and credentials — paste them into the app
+This script:
+1. Checks Docker + Compose
+2. Creates `~/driftcode-server/`
+3. Generates credentials in `.env`
+4. Starts the container
+5. Prints connection details
 
-### Manual install
+#### Manual install
 
 ```bash
-# 1. Clone or download the docker directory
+# 1. Get the docker files
 git clone https://github.com/driftcode/driftcode.git
 cd driftcode/docker
 
-# 2. Create your .env
-cp .env.example .env
-# Edit .env — set OPENCODE_SERVER_PASSWORD to something strong
+# 2. Create .env (adjust values)
+cat > .env <<'EOF'
+OPENCODE_SERVER_PASSWORD=change-this-to-a-strong-password
+OPENCODE_SERVER_USERNAME=opencode
+SERVER_PORT=4096
+EOF
 
-# 3. Start the server
+# 3. Start server
 docker compose up -d
-
-# 4. Connect an LLM provider
-#    SSH into your server and run:
-opencode     # opens the TUI
-# then: /connect — choose GitHub Copilot, Anthropic, OpenAI, etc.
 ```
 
-### Connect from the app
+Then SSH into the host and connect an LLM provider:
 
-Open DriftCode → tap **Connect to Server** → enter:
+```bash
+opencode
+# then run: /connect
+```
 
-- **Server URL**: `http://<your-vps-ip>:4096`
-- **Username**: `opencode` (default)
-- **Password**: the value of `OPENCODE_SERVER_PASSWORD` from your `.env`
+For HTTPS, place nginx/Caddy in front of opencode. A sample nginx config with SSE/rate-limit handling is in `docker/nginx.conf`.
 
-### Tip: HTTPS
+### Mode C: Cloudflare Tunnel (including local laptop/PC)
 
-Put nginx or Caddy in front of opencode for HTTPS. A sample nginx config with rate limiting (used by the DriftCode demo server) is in `docker/nginx.conf`.
+Use this when opencode runs on a private machine (even your local laptop/PC) and you want secure remote access without exposing inbound ports.
+
+#### Quick temporary tunnel (fastest test)
+
+1) Start opencode locally:
+
+```bash
+opencode serve --hostname 127.0.0.1 --port 4096
+```
+
+2) In another terminal, start a quick tunnel:
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:4096
+```
+
+3) Copy the generated `https://...trycloudflare.com` URL into DriftCode as **Server URL**.
+
+#### Stable tunnel with your own domain
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create driftcode-opencode
+cloudflared tunnel route dns driftcode-opencode code.yourdomain.com
+```
+
+Create `~/.cloudflared/config.yml`:
+
+```yaml
+tunnel: driftcode-opencode
+credentials-file: /home/<user>/.cloudflared/<tunnel-id>.json
+
+ingress:
+  - hostname: code.yourdomain.com
+    service: http://127.0.0.1:4096
+  - service: http_status:404
+```
+
+Run tunnel:
+
+```bash
+cloudflared tunnel run driftcode-opencode
+```
+
+Use `https://code.yourdomain.com` in DriftCode.
+
+### Switching between hosting modes
+
+You can switch at any time in DriftCode via **Connect to Server** (or Settings -> Change Server).
+
+Examples:
+- LAN: `http://192.168.1.25:4096`
+- Public VPS/domain: `https://code.yourdomain.com`
+- Cloudflare tunnel: `https://<your-tunnel-hostname>`
 
 ## Running the app locally
 
