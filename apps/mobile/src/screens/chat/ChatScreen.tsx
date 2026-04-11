@@ -411,31 +411,78 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
   const [activityModalMessage, setActivityModalMessage] = useState<Message | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
   const hasInitialScrollRef = useRef(false);
+  const pendingInitialScrollRef = useRef(false);
   const prevSessionIdRef = useRef<string | null>(sessionId);
+
+  const scrollToLatest = useCallback((animated: boolean) => {
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToEnd({ animated });
+      if (!animated) {
+        setTimeout(() => {
+          listRef.current?.scrollToEnd({ animated: false });
+        }, 80);
+      }
+    });
+  }, []);
 
   // Reset initial-scroll flag when switching conversations.
   useEffect(() => {
     if (prevSessionIdRef.current !== sessionId) {
       prevSessionIdRef.current = sessionId;
       hasInitialScrollRef.current = false;
+      pendingInitialScrollRef.current = true;
     }
   }, [sessionId]);
 
-  // On first load of a conversation, jump to newest messages immediately.
+  // Ensure initial sessions with preloaded content also request a bottom jump.
   useEffect(() => {
     if (!isLoading && messages.length > 0 && !hasInitialScrollRef.current) {
-      hasInitialScrollRef.current = true;
-      // Small delay ensures layout is measured before initial jump.
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 100);
+      pendingInitialScrollRef.current = true;
+      scrollToLatest(false);
     }
-  }, [isLoading, messages.length]);
+  }, [isLoading, messages.length, scrollToLatest]);
+
+  const lastMessageFingerprint = useMemo(() => {
+    const last = messages[messages.length - 1];
+    if (!last) return '';
+
+    const tail = last.parts[last.parts.length - 1];
+    let tailSig: string = tail?.type ?? 'none';
+
+    if (tail?.type === 'text') {
+      tailSig = `text:${tail.text.length}`;
+    } else if (tail?.type === 'reasoning') {
+      tailSig = `reasoning:${tail.reasoning.length}`;
+    } else if (tail?.type === 'tool-invocation') {
+      tailSig = `tool:${tail.toolInvocation.state}`;
+    }
+
+    return `${messages.length}:${last.id}:${last.parts.length}:${tailSig}`;
+  }, [messages]);
 
   // After initial positioning, keep following new messages.
   useEffect(() => {
     if (messages.length > 0 && hasInitialScrollRef.current) {
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
+      scrollToLatest(true);
     }
-  }, [messages.length]);
+  }, [lastMessageFingerprint, messages.length, scrollToLatest]);
+
+  const handleListContentSizeChange = useCallback(() => {
+    if (isLoading || messages.length === 0) return;
+
+    if (!hasInitialScrollRef.current || pendingInitialScrollRef.current) {
+      hasInitialScrollRef.current = true;
+      pendingInitialScrollRef.current = false;
+      scrollToLatest(false);
+    }
+  }, [isLoading, messages.length, scrollToLatest]);
+
+  const handleListLayout = useCallback(() => {
+    if (isLoading || messages.length === 0) return;
+    if (!hasInitialScrollRef.current || pendingInitialScrollRef.current) {
+      scrollToLatest(false);
+    }
+  }, [isLoading, messages.length, scrollToLatest]);
 
   const latestThinkingText = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -641,6 +688,8 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
             data={messages}
             renderItem={renderItem}
             keyExtractor={keyExtractor}
+            onLayout={handleListLayout}
+            onContentSizeChange={handleListContentSizeChange}
             contentContainerStyle={styles.listContent}
             ListEmptyComponent={
               <View style={styles.emptyList}>
