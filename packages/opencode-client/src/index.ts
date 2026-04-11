@@ -88,6 +88,7 @@ export {
   getCurrentProject,
   getVCSInfo,
   getInstancePathInfo,
+  switchProjectBranch,
 } from './projects';
 
 export { listCommands, executeCommand } from './commands';

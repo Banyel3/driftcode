@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,6 +26,7 @@ import { messageKeys } from '../../hooks/useMessages';
 import { useBranches } from '../../hooks/useBranches';
 import { usePullRequests } from '../../hooks/usePullRequests';
 import { useServerProjects } from '../../hooks/useServerProjects';
+import { useProjectBranchSwitch } from '../../hooks/useProjectBranchSwitch';
 import { basenameSafe } from '../../utils/path';
 import { getProjectWorktree } from '../../utils/projectContext';
 import type { ProjectDetailScreenProps } from '../../navigation/types';
@@ -38,7 +41,10 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
   const setGitHubProjectWorktree = useConnectionStore((s) => s.setGitHubProjectWorktree);
   const queryClient = useQueryClient();
   const [isOpening, setIsOpening] = useState(false);
+  const [branchModalVisible, setBranchModalVisible] = useState(false);
+  const [branchSearch, setBranchSearch] = useState('');
   const { projects } = useServerProjects();
+  const { switchBranch, isSwitching } = useProjectBranchSwitch();
 
   const isGitHub = activeProject?.kind === 'github';
   const owner = isGitHub ? activeProject.repo.owner.login : null;
@@ -59,6 +65,14 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
     activeProject?.kind === 'github'
       ? activeProject.selectedBranch ?? activeProject.repo.defaultBranch
       : null;
+
+  const activeWorktree = useMemo(() => {
+    if (!activeProject) return null;
+    if (activeProject.kind === 'server') {
+      return getProjectWorktree(activeProject.project) ?? null;
+    }
+    return activeProject.resolvedWorktree ?? null;
+  }, [activeProject]);
 
   const projectTitle = useMemo(() => {
     if (!activeProject) return 'Project';
@@ -128,6 +142,28 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
     [setGitHubProjectBranch],
   );
 
+  const handleSwitchActiveBranch = useCallback(
+    async (branch: string) => {
+      if (!activeWorktree) {
+        Alert.alert('Branch switch unavailable', 'Could not determine the active project worktree.');
+        return;
+      }
+
+      try {
+        await switchBranch({ worktreePath: activeWorktree, branch });
+        if (activeProject?.kind === 'github') {
+          setGitHubProjectBranch(branch);
+        }
+        setBranchModalVisible(false);
+        setBranchSearch('');
+        Alert.alert('Branch switched', `Now on ${branch}.`);
+      } catch (err) {
+        Alert.alert('Failed to switch branch', err instanceof Error ? err.message : String(err));
+      }
+    },
+    [activeWorktree, switchBranch, activeProject?.kind, setGitHubProjectBranch],
+  );
+
   useEffect(() => {
     if (!activeProject || activeProject.kind !== 'github') return;
     const repoName = activeProject.repo.name.toLowerCase();
@@ -142,6 +178,12 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
   const handleBrowseFiles = useCallback(() => {
     navigation.navigate('Files');
   }, [navigation]);
+
+  const filteredBranches = useMemo(() => {
+    if (!branchSearch.trim()) return branches;
+    const q = branchSearch.trim().toLowerCase();
+    return branches.filter((branch) => branch.name.toLowerCase().includes(q));
+  }, [branches, branchSearch]);
 
   if (!activeProject) {
     return (
@@ -190,7 +232,16 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
         {activeProject.kind === 'github' ? (
           <>
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Branches</Text>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionTitle}>Branches</Text>
+                <TouchableOpacity
+                  style={styles.switchBranchBtn}
+                  onPress={() => setBranchModalVisible(true)}
+                  disabled={isLoadingBranches || branches.length === 0}
+                >
+                  <Text style={styles.switchBranchBtnText}>Switch</Text>
+                </TouchableOpacity>
+              </View>
               {isLoadingBranches ? (
                 <ActivityIndicator size="small" color={COLORS.primary} />
               ) : isBranchError ? (
@@ -259,6 +310,65 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
           <Text style={styles.primaryBtnText}>Open Session</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={branchModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBranchModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Switch Branch</Text>
+              <TouchableOpacity onPress={() => setBranchModalVisible(false)}>
+                <Ionicons name="close" size={18} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalBody}>
+              <TextInput
+                value={branchSearch}
+                onChangeText={setBranchSearch}
+                placeholder="Filter branches…"
+                placeholderTextColor={COLORS.textMuted}
+                style={styles.branchSearchInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              <ScrollView style={styles.branchList} showsVerticalScrollIndicator={false}>
+                {filteredBranches.map((branch) => (
+                  <TouchableOpacity
+                    key={`switch-${branch.name}`}
+                    style={styles.branchSwitchRow}
+                    onPress={() => {
+                      void handleSwitchActiveBranch(branch.name);
+                    }}
+                    disabled={isSwitching}
+                  >
+                    <Ionicons name="git-branch-outline" size={14} color={COLORS.textMuted} />
+                    <Text style={styles.branchSwitchText} numberOfLines={1}>{branch.name}</Text>
+                    {selectedBranch === branch.name ? (
+                      <Ionicons name="checkmark" size={14} color={COLORS.primary} />
+                    ) : null}
+                  </TouchableOpacity>
+                ))}
+                {filteredBranches.length === 0 ? (
+                  <Text style={styles.sectionEmpty}>No matching branches.</Text>
+                ) : null}
+              </ScrollView>
+
+              {isSwitching ? (
+                <View style={styles.switchingRow}>
+                  <ActivityIndicator size="small" color={COLORS.primary} />
+                  <Text style={styles.switchingText}>Switching branch…</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -342,6 +452,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.text,
     marginBottom: SPACING.xs,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.xs,
+  },
+  switchBranchBtn: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: COLORS.surfaceElevated,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+  },
+  switchBranchBtnText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.primary,
+    fontWeight: '700',
   },
   sectionEmpty: {
     fontSize: FONT_SIZE.xs,
@@ -445,5 +574,76 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.sm,
     color: COLORS.text,
     fontWeight: '600',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    padding: SPACING.md,
+  },
+  modalCard: {
+    maxHeight: '80%',
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  modalTitle: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.text,
+    fontWeight: '700',
+  },
+  modalBody: {
+    padding: SPACING.md,
+    gap: SPACING.sm,
+  },
+  branchSearchInput: {
+    minHeight: MIN_TOUCH_TARGET,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: COLORS.surfaceElevated,
+    paddingHorizontal: SPACING.md,
+    color: COLORS.text,
+    fontSize: FONT_SIZE.sm,
+  },
+  branchList: {
+    maxHeight: 300,
+  },
+  branchSwitchRow: {
+    minHeight: MIN_TOUCH_TARGET,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    borderWidth: 1,
+    borderColor: COLORS.borderSubtle,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: COLORS.surfaceElevated,
+    paddingHorizontal: SPACING.sm,
+    marginBottom: SPACING.xs,
+  },
+  branchSwitchText: {
+    flex: 1,
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+  },
+  switchingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+  },
+  switchingText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
   },
 });

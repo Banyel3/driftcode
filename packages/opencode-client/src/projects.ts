@@ -1,5 +1,18 @@
 import type { OpenCodeClient } from './client';
 import type { Project, VCSInfo, InstancePathInfo } from './types';
+import { createSession, deleteSession } from './sessions';
+import { executeCommand } from './commands';
+
+function assertSafeBranchName(branch: string): string {
+  const trimmed = branch.trim();
+  if (!trimmed) {
+    throw new Error('Branch name cannot be empty.');
+  }
+  if (!/^[A-Za-z0-9._\/-]+$/.test(trimmed) || trimmed.includes('..')) {
+    throw new Error('Invalid branch name.');
+  }
+  return trimmed;
+}
 
 /**
  * GET /project
@@ -37,4 +50,34 @@ export async function getInstancePathInfo(
   client: OpenCodeClient,
 ): Promise<InstancePathInfo> {
   return client.get<InstancePathInfo>('/path');
+}
+
+/**
+ * Switches a git branch for a specific server worktree by executing
+ * git commands inside a temporary session rooted at that path.
+ */
+export async function switchProjectBranch(
+  client: OpenCodeClient,
+  worktreePath: string,
+  branch: string,
+): Promise<void> {
+  const safeBranch = assertSafeBranchName(branch);
+  const session = await createSession(client, { path: worktreePath });
+
+  try {
+    try {
+      await executeCommand(client, session.id, {
+        command: 'bash',
+        arguments: `git switch ${safeBranch}`,
+      });
+      return;
+    } catch {
+      await executeCommand(client, session.id, {
+        command: 'bash',
+        arguments: `git checkout ${safeBranch}`,
+      });
+    }
+  } finally {
+    await deleteSession(client, session.id).catch(() => undefined);
+  }
 }
