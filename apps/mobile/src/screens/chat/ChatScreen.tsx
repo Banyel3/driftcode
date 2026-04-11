@@ -61,6 +61,13 @@ import { ReasoningBlock } from './ReasoningBlock';
 import { ToolCallCard } from './ToolCallCard';
 import type { ConversationScreenProps } from '../../navigation/types';
 
+const CONNECT_GUIDE_STEPS = [
+  'Open a terminal on the machine running your opencode server.',
+  'Run `opencode` to launch the opencode terminal UI.',
+  'Run `/connect` and choose your provider (Copilot, Anthropic, OpenAI, etc.).',
+  'Return to DriftCode and refresh model controls in chat.',
+];
+
 const RUNTIME_SLASH_COMMANDS: Command[] = [
   {
     name: 'agent',
@@ -175,9 +182,11 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
   const [agentPickerVisible, setAgentPickerVisible] = useState(false);
   const [modelPickerVisible, setModelPickerVisible] = useState(false);
   const [variantModalVisible, setVariantModalVisible] = useState(false);
+  const [connectGuideVisible, setConnectGuideVisible] = useState(false);
   const [variantDraft, setVariantDraft] = useState('');
 
   const isBusy = isSending || isRunningCommand;
+  const hasConfiguredProviders = providerOptions.length > 0;
 
   const selectedModel = useMemo(
     () =>
@@ -253,6 +262,11 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
             }
           }
           setAgentPickerVisible(true);
+          return;
+        }
+
+        if (normalizedName === 'connect') {
+          setConnectGuideVisible(true);
           return;
         }
 
@@ -778,6 +792,22 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
           </View>
         )}
 
+        {!hasConfiguredProviders && !isLoadingProviders && (
+          <TouchableOpacity
+            style={styles.providerSetupBanner}
+            activeOpacity={0.8}
+            onPress={() => setConnectGuideVisible(true)}
+          >
+            <View style={styles.providerSetupBannerHead}>
+              <Ionicons name="warning-outline" size={14} color={COLORS.warning} />
+              <Text style={styles.providerSetupBannerTitle}>No AI provider connected</Text>
+            </View>
+            <Text style={styles.providerSetupBannerText} numberOfLines={2}>
+              Run `opencode` then `/connect` on your server host, then return and pick a model.
+            </Text>
+          </TouchableOpacity>
+        )}
+
         {/* Composer */}
         {scopedFileContext && (
           <View style={styles.fileContextRow}>
@@ -1073,6 +1103,61 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
         </Modal>
 
         <Modal
+          visible={connectGuideVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setConnectGuideVisible(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>How to use /connect</Text>
+                <TouchableOpacity
+                  style={styles.modalCloseBtn}
+                  onPress={() => setConnectGuideVisible(false)}
+                >
+                  <Ionicons name="close" size={18} color={COLORS.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+                <Text style={styles.connectGuideIntro}>
+                  `/connect` must be run in the opencode terminal UI on the server host.
+                </Text>
+
+                {CONNECT_GUIDE_STEPS.map((step) => (
+                  <View key={step} style={styles.modalStepRow}>
+                    <Ionicons name="ellipse" size={6} color={COLORS.textMuted} />
+                    <Text style={styles.modalStepText}>{step}</Text>
+                  </View>
+                ))}
+
+                <View style={styles.connectGuideActions}>
+                  <TouchableOpacity
+                    style={[styles.variantButton, styles.variantButtonSecondary]}
+                    onPress={() => {
+                      void refreshProviders();
+                      setConnectGuideVisible(false);
+                    }}
+                  >
+                    <Text style={styles.variantButtonSecondaryText}>Refresh models</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.variantButton, styles.variantButtonPrimary]}
+                    onPress={() => {
+                      setConnectGuideVisible(false);
+                      setModelPickerVisible(true);
+                    }}
+                  >
+                    <Text style={styles.variantButtonPrimaryText}>Open model picker</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal
           visible={activityModalMessage !== null}
           transparent
           animationType="fade"
@@ -1349,6 +1434,29 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     fontWeight: '600',
   },
+  providerSetupBanner: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderSubtle,
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    gap: 2,
+  },
+  providerSetupBannerHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+  },
+  providerSetupBannerTitle: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.warning,
+    fontWeight: '700',
+  },
+  providerSetupBannerText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
+  },
   runtimeControlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1533,6 +1641,19 @@ const styles = StyleSheet.create({
   modalStepText: {
     fontSize: FONT_SIZE.xs,
     color: COLORS.textSecondary,
+  },
+  connectGuideIntro: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.text,
+    lineHeight: 18,
+    marginBottom: SPACING.xs,
+  },
+  connectGuideActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.xs,
   },
   // ── Composer ─────────────────────────────────────────────────────────────
   composer: {

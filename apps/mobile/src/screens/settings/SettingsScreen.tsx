@@ -316,8 +316,8 @@ function ModelPickerModal({
             />
             <Text style={styles.modalEmptyTitle}>No models available</Text>
             <Text style={styles.modalEmptyText}>
-              Make sure your opencode server has at least one AI provider
-              configured with valid credentials.
+              Connect a provider on your server host: run `opencode`, then run
+              `/connect` in the opencode terminal UI, then reopen this picker.
             </Text>
           </View>
         ) : (

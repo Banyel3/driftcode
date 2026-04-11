@@ -33,6 +33,7 @@ function normalizeCommandName(name: string): string {
 }
 
 const FALLBACK_BUILTIN_COMMANDS: Command[] = [
+  { name: 'connect', description: 'show provider setup instructions', type: 'builtin' },
   { name: 'init', description: 'guided AGENTS.md setup', type: 'builtin' },
   { name: 'review', description: 'review current changes', type: 'builtin' },
   { name: 'share', description: 'create a share link for this session', type: 'builtin' },
