@@ -28,7 +28,7 @@ import { usePullRequests } from '../../hooks/usePullRequests';
 import { useServerProjects } from '../../hooks/useServerProjects';
 import { useProjectBranchSwitch } from '../../hooks/useProjectBranchSwitch';
 import { basenameSafe } from '../../utils/path';
-import { getProjectWorktree } from '../../utils/projectContext';
+import { getProjectWorktree, normalizePath } from '../../utils/projectContext';
 import type { ProjectDetailScreenProps } from '../../navigation/types';
 
 export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
@@ -39,6 +39,7 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
   const setActiveSessionId = useConnectionStore((s) => s.setActiveSessionId);
   const setGitHubProjectBranch = useConnectionStore((s) => s.setGitHubProjectBranch);
   const setGitHubProjectWorktree = useConnectionStore((s) => s.setGitHubProjectWorktree);
+  const cloneDirectory = useConnectionStore((s) => s.cloneDirectory);
   const queryClient = useQueryClient();
   const [isOpening, setIsOpening] = useState(false);
   const [branchModalVisible, setBranchModalVisible] = useState(false);
@@ -66,13 +67,32 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
       ? activeProject.selectedBranch ?? activeProject.repo.defaultBranch
       : null;
 
+  const matchedGitHubWorktree = useMemo(() => {
+    if (!activeProject || activeProject.kind !== 'github') return null;
+    const repoLower = activeProject.repo.name.toLowerCase();
+    const found = projects.find((project) => {
+      const worktree = normalizePath(getProjectWorktree(project));
+      if (!worktree) return false;
+      const base = basenameSafe(worktree)?.toLowerCase();
+      if (base === repoLower) return true;
+      return worktree.toLowerCase().endsWith(`/${repoLower}`);
+    });
+    return found ? getProjectWorktree(found) : null;
+  }, [activeProject, projects]);
+
   const activeWorktree = useMemo(() => {
     if (!activeProject) return null;
     if (activeProject.kind === 'server') {
       return getProjectWorktree(activeProject.project) ?? null;
     }
-    return activeProject.resolvedWorktree ?? null;
-  }, [activeProject]);
+    const persisted = normalizePath(activeProject.resolvedWorktree ?? null);
+    if (persisted) return persisted;
+
+    const discovered = normalizePath(matchedGitHubWorktree);
+    if (discovered) return discovered;
+
+    return normalizePath(`${cloneDirectory}/${activeProject.repo.name}`);
+  }, [activeProject, matchedGitHubWorktree, cloneDirectory]);
 
   const projectTitle = useMemo(() => {
     if (!activeProject) return 'Project';
@@ -149,6 +169,13 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
         return;
       }
 
+      if (selectedBranch === branch) {
+        setBranchModalVisible(false);
+        setBranchSearch('');
+        Alert.alert('Already on this branch', `The project is already on ${branch}.`);
+        return;
+      }
+
       try {
         await switchBranch({ worktreePath: activeWorktree, branch });
         if (activeProject?.kind === 'github') {
@@ -161,19 +188,13 @@ export function ProjectDetailScreen({ navigation }: ProjectDetailScreenProps) {
         Alert.alert('Failed to switch branch', err instanceof Error ? err.message : String(err));
       }
     },
-    [activeWorktree, switchBranch, activeProject?.kind, setGitHubProjectBranch],
+    [activeWorktree, switchBranch, activeProject?.kind, setGitHubProjectBranch, selectedBranch],
   );
 
   useEffect(() => {
     if (!activeProject || activeProject.kind !== 'github') return;
-    const repoName = activeProject.repo.name.toLowerCase();
-    const match = projects.find((project) => {
-      const worktree = getProjectWorktree(project);
-      const base = worktree ? basenameSafe(worktree)?.toLowerCase() : null;
-      return base === repoName;
-    });
-    setGitHubProjectWorktree(match ? getProjectWorktree(match) : null);
-  }, [activeProject, projects, setGitHubProjectWorktree]);
+    setGitHubProjectWorktree(matchedGitHubWorktree);
+  }, [activeProject, matchedGitHubWorktree, setGitHubProjectWorktree]);
 
   const handleBrowseFiles = useCallback(() => {
     navigation.navigate('Files');

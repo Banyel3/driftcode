@@ -8,6 +8,51 @@ import type {
   GitHubPullRequest,
 } from './types';
 
+function mapGitHubError(err: unknown): Error {
+  if (!err || typeof err !== 'object') {
+    return new Error('GitHub request failed.');
+  }
+
+  const e = err as {
+    status?: number;
+    message?: string;
+    response?: {
+      headers?: Record<string, string>;
+      data?: { message?: string };
+    };
+  };
+
+  const status = typeof e.status === 'number' ? e.status : null;
+  const rawMessage =
+    typeof e.response?.data?.message === 'string'
+      ? e.response.data.message
+      : typeof e.message === 'string'
+        ? e.message
+        : 'GitHub request failed.';
+
+  if (status === 401) {
+    return new Error('GitHub authentication failed. Reconnect your token in Settings.');
+  }
+
+  if (status === 403) {
+    const remaining = e.response?.headers?.['x-ratelimit-remaining'];
+    if (remaining === '0') {
+      return new Error('GitHub rate limit exceeded. Try again later.');
+    }
+    return new Error('GitHub access forbidden. Check token scopes and repo access.');
+  }
+
+  if (status === 404) {
+    return new Error('Repository not found or token does not have access.');
+  }
+
+  if (status !== null) {
+    return new Error(`GitHub request failed (${status}): ${rawMessage}`);
+  }
+
+  return new Error(`GitHub request failed: ${rawMessage}`);
+}
+
 // ---------------------------------------------------------------------------
 // Mapping helpers — raw GitHub REST API → camelCase domain types
 // ---------------------------------------------------------------------------
@@ -210,12 +255,17 @@ export async function listBranches(
   owner: string,
   repo: string,
 ): Promise<GitHubBranch[]> {
-  const { data } = await client.getOctokit().rest.repos.listBranches({
-    owner,
-    repo,
-    per_page: 100,
-    page: 1,
-  });
+  let data: unknown;
+  try {
+    ({ data } = await client.getOctokit().rest.repos.listBranches({
+      owner,
+      repo,
+      per_page: 100,
+      page: 1,
+    }));
+  } catch (err) {
+    throw mapGitHubError(err);
+  }
 
   return (data as RawBranch[]).map(mapBranch);
 }
@@ -228,13 +278,18 @@ export async function listPullRequests(
   owner: string,
   repo: string,
 ): Promise<GitHubPullRequest[]> {
-  const { data } = await client.getOctokit().rest.pulls.list({
-    owner,
-    repo,
-    state: 'open',
-    per_page: 50,
-    page: 1,
-  });
+  let data: unknown;
+  try {
+    ({ data } = await client.getOctokit().rest.pulls.list({
+      owner,
+      repo,
+      state: 'open',
+      per_page: 50,
+      page: 1,
+    }));
+  } catch (err) {
+    throw mapGitHubError(err);
+  }
 
   return (data as RawPullRequest[]).map(mapPullRequest);
 }

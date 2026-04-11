@@ -1,7 +1,7 @@
 import type { OpenCodeClient } from './client';
 import type { Project, VCSInfo, InstancePathInfo } from './types';
 import { createSession, deleteSession } from './sessions';
-import { executeCommand } from './commands';
+import { listCommands, executeCommand } from './commands';
 
 function assertSafeBranchName(branch: string): string {
   const trimmed = branch.trim();
@@ -65,15 +65,29 @@ export async function switchProjectBranch(
   const session = await createSession(client, { path: worktreePath });
 
   try {
+    const commands = await listCommands(client).catch(() => []);
+    const commandNames = new Set(commands.map((c) => c.name.toLowerCase()));
+    const execCommand = commandNames.has('bash')
+      ? 'bash'
+      : commandNames.has('sh')
+        ? 'sh'
+        : null;
+
+    if (!execCommand) {
+      throw new Error(
+        'Server does not expose shell commands for branch switching. Ensure /bash or /sh is available in opencode.',
+      );
+    }
+
     try {
       await executeCommand(client, session.id, {
-        command: 'bash',
+        command: execCommand,
         arguments: `git switch ${safeBranch}`,
       });
       return;
     } catch {
       await executeCommand(client, session.id, {
-        command: 'bash',
+        command: execCommand,
         arguments: `git checkout ${safeBranch}`,
       });
     }
