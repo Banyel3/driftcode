@@ -426,6 +426,10 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
   const listRef = useRef<FlatList<Message>>(null);
   const hasInitialScrollRef = useRef(false);
   const pendingInitialScrollRef = useRef(false);
+  const userInteractedWithListRef = useRef(false);
+  const initialAutoScrollUntilRef = useRef(0);
+  const lastContentHeightRef = useRef<number | null>(null);
+  const stableContentTicksRef = useRef(0);
   const prevSessionIdRef = useRef<string | null>(sessionId);
 
   const scrollToLatest = useCallback((animated: boolean) => {
@@ -445,6 +449,10 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
       prevSessionIdRef.current = sessionId;
       hasInitialScrollRef.current = false;
       pendingInitialScrollRef.current = true;
+      userInteractedWithListRef.current = false;
+      initialAutoScrollUntilRef.current = Date.now() + 1_800;
+      lastContentHeightRef.current = null;
+      stableContentTicksRef.current = 0;
     }
   }, [sessionId]);
 
@@ -452,6 +460,9 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
   useEffect(() => {
     if (!isLoading && messages.length > 0 && !hasInitialScrollRef.current) {
       pendingInitialScrollRef.current = true;
+      stableContentTicksRef.current = 0;
+      lastContentHeightRef.current = null;
+      initialAutoScrollUntilRef.current = Date.now() + 1_800;
       scrollToLatest(false);
     }
   }, [isLoading, messages.length, scrollToLatest]);
@@ -481,22 +492,48 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
     }
   }, [lastMessageFingerprint, messages.length, scrollToLatest]);
 
-  const handleListContentSizeChange = useCallback(() => {
+  const handleListContentSizeChange = useCallback((_: number, height: number) => {
     if (isLoading || messages.length === 0) return;
+    if (userInteractedWithListRef.current) return;
 
-    if (!hasInitialScrollRef.current || pendingInitialScrollRef.current) {
+    const previousHeight = lastContentHeightRef.current;
+    const changed = previousHeight === null || Math.abs(height - previousHeight) > 1;
+    if (changed) {
+      stableContentTicksRef.current = 0;
+      lastContentHeightRef.current = height;
+    } else {
+      stableContentTicksRef.current += 1;
+    }
+
+    const withinInitialWindow = Date.now() < initialAutoScrollUntilRef.current;
+    const shouldForceInitialBottom =
+      !hasInitialScrollRef.current ||
+      pendingInitialScrollRef.current ||
+      withinInitialWindow ||
+      stableContentTicksRef.current < 2;
+
+    if (shouldForceInitialBottom) {
       hasInitialScrollRef.current = true;
-      pendingInitialScrollRef.current = false;
       scrollToLatest(false);
+
+      if (!withinInitialWindow && stableContentTicksRef.current >= 2) {
+        pendingInitialScrollRef.current = false;
+      }
     }
   }, [isLoading, messages.length, scrollToLatest]);
 
   const handleListLayout = useCallback(() => {
     if (isLoading || messages.length === 0) return;
+    if (userInteractedWithListRef.current) return;
     if (!hasInitialScrollRef.current || pendingInitialScrollRef.current) {
       scrollToLatest(false);
     }
   }, [isLoading, messages.length, scrollToLatest]);
+
+  const handleListScrollBeginDrag = useCallback(() => {
+    userInteractedWithListRef.current = true;
+    pendingInitialScrollRef.current = false;
+  }, []);
 
   const latestThinkingText = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -704,6 +741,7 @@ export function ChatScreen({ route, navigation }: ConversationScreenProps) {
             keyExtractor={keyExtractor}
             onLayout={handleListLayout}
             onContentSizeChange={handleListContentSizeChange}
+            onScrollBeginDrag={handleListScrollBeginDrag}
             contentContainerStyle={styles.listContent}
             ListEmptyComponent={
               <View style={styles.emptyList}>
