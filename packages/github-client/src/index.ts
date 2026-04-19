@@ -23,3 +23,10 @@ export {
   listBranches,
   listPullRequests,
 } from './repos';
+
+export {
+  requestDeviceCode,
+  pollForAccessToken,
+  GitHubDeviceFlowError,
+} from './deviceFlow';
+export type { DeviceCodeResponse, DeviceFlowErrorCode } from './deviceFlow';
