@@ -17,14 +17,14 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "dev.driftcode.app"
+      "bundleIdentifier": "dev.vancornelio.driftcode"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0D1117"
       },
-      "package": "dev.driftcode.app",
+      "package": "dev.vancornelio.driftcode",
       "minSdkVersion": 29
     },
     "web": {
@@ -35,8 +35,5 @@
       "expo-secure-store",
       "expo-web-browser"
     ],
-    "extra": {
-      "githubClientId": ""
-    }
   }
 }
