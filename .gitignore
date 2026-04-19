@@ -31,6 +31,10 @@ apps/mobile/ios/
 .DS_Store
 *.pem
 
+# Claude Code
+CLAUDE.md
+.claude/
+
 # debug
 npm-debug.log*
 yarn-debug.log*
