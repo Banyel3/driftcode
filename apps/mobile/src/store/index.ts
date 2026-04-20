@@ -106,6 +106,9 @@ interface ConnectionState {
    */
   setRememberCredentials: (remember: boolean) => void;
 
+  /** Disconnects GitHub: clears token, active project, session state, and cached records */
+  disconnectGitHub: () => void;
+
   /** Disconnects and wipes all stored credentials */
   clearConnection: () => void;
 
@@ -329,6 +332,18 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
         void SecureStore.setItemAsync(SECURE_STORE_KEYS.SERVER_PASSWORD, serverPassword);
       }
     }
+  },
+
+  disconnectGitHub: () => {
+    set({
+      githubToken: null,
+      activeProject: null,
+      activeSessionId: null,
+      activeFileContext: null,
+      sessionRuntimeControls: {},
+    });
+    void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.GITHUB_TOKEN);
+    void SecureStore.deleteItemAsync(SECURE_STORE_KEYS.ACTIVE_PROJECT);
   },
 
   clearConnection: () => {

@@ -14,7 +14,6 @@
  * Call cancel() to abort polling and reset to idle (e.g. when the modal closes).
  */
 import { useState, useRef, useCallback } from 'react';
-import { openBrowserAsync } from 'expo-web-browser';
 import {
   requestDeviceCode,
   pollForAccessToken,
@@ -142,9 +141,6 @@ export function useGitHubDeviceFlow() {
       if (cancelledRef.current) return;
 
       setState({ phase: 'pending', userCode, verificationUri });
-
-      // Open the verification URL in the browser (non-blocking)
-      void openBrowserAsync(verificationUri);
 
       // Begin polling in the background
       startPolling(CLIENT_ID, deviceCode, interval);
