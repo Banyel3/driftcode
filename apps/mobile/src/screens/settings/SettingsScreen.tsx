@@ -8,7 +8,7 @@
  *  ABOUT       — App version, server version (from GET /global/health)
  *  ACCOUNT     — "Disconnect Server" danger action
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -141,6 +141,8 @@ interface OAuthModalProps {
 function OAuthModal({ visible, onClose }: OAuthModalProps) {
   const { state, start, cancel } = useGitHubDeviceFlow();
   const githubToken = useConnectionStore((s) => s.githubToken);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Auto-start when the modal opens
   useEffect(() => {
@@ -157,13 +159,46 @@ function OAuthModal({ visible, onClose }: OAuthModalProps) {
     }
   }, [githubToken, visible, onClose]);
 
+  // 10-second countdown before auto-opening the browser
+  useEffect(() => {
+    if (state.phase !== 'pending') return;
+    const uri = state.verificationUri;
+    setCountdown(10);
+    const id = setInterval(() => {
+      setCountdown(prev => {
+        if (prev === null || prev <= 1) {
+          clearInterval(id);
+          void openBrowserAsync(uri);
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    countdownIntervalRef.current = id;
+    return () => {
+      clearInterval(id);
+      countdownIntervalRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.phase]);
+
   const handleClose = useCallback(() => {
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    setCountdown(null);
     cancel();
     onClose();
   }, [cancel, onClose]);
 
   const handleOpenBrowser = useCallback(() => {
     if (state.phase === 'pending') {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+      setCountdown(null);
       void openBrowserAsync(state.verificationUri);
     }
   }, [state]);
@@ -199,13 +234,20 @@ function OAuthModal({ visible, onClose }: OAuthModalProps) {
           {state.phase === 'pending' && (
             <>
               <Text style={styles.oauthInstruction}>
-                Enter this code on GitHub to authorize DriftCode:
+                Copy this code, then authorize DriftCode on GitHub:
               </Text>
 
               {/* User code — displayed large for easy reading */}
               <View style={styles.oauthCodeCard}>
                 <Text style={styles.oauthCode}>{state.userCode}</Text>
               </View>
+
+              {/* Countdown before auto-opening browser */}
+              {countdown !== null && (
+                <Text style={styles.oauthCountdown}>
+                  Browser opens in {countdown}s — copy the code first!
+                </Text>
+              )}
 
               {/* Open browser button */}
               <TouchableOpacity
@@ -1080,6 +1122,12 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.sm,
     color: COLORS.textMuted,
     textAlign: 'center',
+  },
+  oauthCountdown: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.textMuted,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   oauthErrorText: {
     fontSize: FONT_SIZE.sm,

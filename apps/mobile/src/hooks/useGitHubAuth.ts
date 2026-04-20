@@ -16,6 +16,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { createGitHubClient, getAuthenticatedUser } from '@driftcode/github-client';
 import type { GitHubUser } from '@driftcode/github-client';
 import { useConnectionStore } from '../store';
+import { queryClient } from '../providers/QueryProvider';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -76,6 +77,7 @@ export interface UseGitHubAuthResult {
 export function useGitHubAuth(): UseGitHubAuthResult {
   const githubToken = useConnectionStore((s) => s.githubToken);
   const setGithubToken = useConnectionStore((s) => s.setGithubToken);
+  const disconnectGitHub = useConnectionStore((s) => s.disconnectGitHub);
 
   const [user, setUser] = useState<GitHubUser | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -101,9 +103,13 @@ export function useGitHubAuth(): UseGitHubAuthResult {
           // Only wipe the persisted token for explicit auth failures.
           // Network/timeout errors are transient and should not log the user out.
           if (isAuthInvalidError(err)) {
-            setGithubToken(null);
+            disconnectGitHub();
+            queryClient.removeQueries({ queryKey: ['githubRepos'] });
+            queryClient.removeQueries({ queryKey: ['githubBranches'] });
+            queryClient.removeQueries({ queryKey: ['sessions'] });
+            queryClient.removeQueries({ queryKey: ['messages'] });
             setUser(null);
-            setError('Stored GitHub token is no longer valid. Please reconnect with a new PAT.');
+            setError('Stored GitHub token is no longer valid. Please reconnect.');
             return;
           }
 
@@ -151,10 +157,16 @@ export function useGitHubAuth(): UseGitHubAuthResult {
   // ── disconnect ────────────────────────────────────────────────────────────
 
   const disconnect = useCallback(() => {
-    setGithubToken(null);
+    // Wipe GitHub token + all session/project ephemeral state from the store
+    disconnectGitHub();
+    // Clear all GitHub and session-related TanStack Query caches
+    queryClient.removeQueries({ queryKey: ['githubRepos'] });
+    queryClient.removeQueries({ queryKey: ['githubBranches'] });
+    queryClient.removeQueries({ queryKey: ['sessions'] });
+    queryClient.removeQueries({ queryKey: ['messages'] });
     setUser(null);
     setError(null);
-  }, [setGithubToken]);
+  }, [disconnectGitHub]);
 
   // ── Result ────────────────────────────────────────────────────────────────
 
